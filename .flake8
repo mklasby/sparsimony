@@ -1,0 +1,5 @@
+[flake8]
+max-line-length = 80
+ignore = E741, W503, E231, E203, E266, E704
+exclude = .venv
+per-file-ignores = src/*/*/__init__.py:F401 src/*/*/*/__init__.py:F401
