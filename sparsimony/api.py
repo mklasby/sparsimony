@@ -19,6 +19,22 @@ def rigl(
     delta_t: int = 100,
     pruning_ratio: float = 0.3,
 ) -> RigL:
+    """Return RigL sparsifier.
+
+    Args:
+        optimizer (torch.optim.Optimizer): Previously initialized optimizer for
+            training. Used to override the dense gradient buffers for
+            sparse weights.
+        sparsity (float): Sparsity level to prune network to.
+        t_end (int): Step to freeze the sparse topology. Typically 75% of total
+            training optimizer steps.
+        delta_t (int, optional): Steps between topology update. Defaults to 100.
+        pruning_ratio (float, optional): Fraction of nnz elements to prune each
+            iteration. Defaults to 0.3.
+
+    Returns:
+        RigL: Initialized rigl sparsifier.
+    """
     return RigL(
         scheduler=CosineDecayScheduler(
             pruning_ratio=pruning_ratio,
@@ -38,6 +54,22 @@ def set(
     delta_t: int = 390,
     pruning_ratio: float = 0.3,
 ) -> SET:
+    """Return SET sparsifier.
+
+    Args:
+        optimizer (torch.optim.Optimizer): Previously initialized optimizer for
+            training. Used to override the dense gradient buffers for
+            sparse weights.
+        sparsity (float): Sparsity level to prune network to.
+        t_end (int): Step to freeze the sparse topology. Typically 75% of total
+            training optimizer steps.
+        delta_t (int, optional): Steps between topology update. Defaults to 100.
+        pruning_ratio (float, optional): Fraction of nnz elements to prune each
+            iteration. Defaults to 0.3.
+
+    Returns:
+        SET: Initialized SET sparsifier.
+    """
     return SET(
         scheduler=ConstantScheduler(
             pruning_ratio=pruning_ratio,
