@@ -2,13 +2,15 @@ from typing import Dict, Any, List, Optional
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
+# import torch.nn.functional as F
 import torch.optim as optim
 import torch.nn.utils.prune as prune
 
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.distributions.base import BaseDistribution
-from .type_registry import TYPE_REGISTRY
+
+# from .type_registry import TYPE_REGISTRY
 
 
 class OptimWrapper(object):

@@ -2,4 +2,4 @@
 max-line-length = 80
 ignore = E741, W503, E231, E203, E266, E704
 exclude = .venv
-per-file-ignores = sparsimony/*/*/__init__.py:F401 sparsimony/*/*/*/__init__.py:F401
+per-file-ignores = sparsimony/__init__.py:F401 sparsimony/*/__init__.py:F401
