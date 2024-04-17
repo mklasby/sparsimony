@@ -1,4 +1,5 @@
 import pytest
+from sparsimony import parametrization
 import torch
 import torch.nn as nn
 from torch.nn.utils import parametrize
@@ -60,12 +61,22 @@ class TestFakeSparsityDenseGradBuffer:
     def test_fake_sparsity_dense_grad_buffer_forward(
         self, fake_sparsity_dense_grad_buffer, linear
     ):
+        with torch.no_grad():
+            linear_dense_clone = nn.Linear(
+                in_features=linear.in_features, out_features=linear.out_features
+            )
+            linear_dense_clone.weight = torch.nn.Parameter(
+                linear.parametrizations.weight.original.clone().detach()
+            )
         target = torch.ones((3, 3))
         x = torch.ones((3, 3))
-        out = linear(x)
-        loss = torch.abs(target - out).sum()
-        loss.backward()
-        grad_target = linear.parametrizations.weight.original.grad
+        out_sparse = linear(x)
+        out_dense = linear_dense_clone(x)
+        loss1 = torch.abs(target - out_sparse).sum()
+        loss1.backward()
+        loss2 = torch.abs(target - out_dense).sum()
+        loss2.backward()
+        grad_target = linear_dense_clone.weight.grad
         assert (grad_target == fake_sparsity_dense_grad_buffer.dense_grad).all()
 
     def test_fake_sparsity_dense_grad_buffer_state_dict(
