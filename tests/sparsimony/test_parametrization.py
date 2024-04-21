@@ -16,7 +16,8 @@ class TestFakeSparsity:
             torch.tensor(
                 [[1, 0, 1], [0, 1, 0], [1, 0, 1]], dtype=torch.float32
             ),
-        ]
+        ],
+        ids=["dense_mask", "50% sparse mask"],
     )
     def fake_sparsity(self, request):
         mask = request.param
@@ -39,7 +40,8 @@ class TestFakeSparsityDenseGradBuffer:
             torch.tensor(
                 [[1, 0, 1], [0, 1, 0], [1, 0, 1]], dtype=torch.float32
             ),
-        ]
+        ],
+        ids=["dense_mask", "50% sparse mask"],
     )
     def fake_sparsity_dense_grad_buffer(self, request):
         mask = request.param
@@ -62,18 +64,21 @@ class TestFakeSparsityDenseGradBuffer:
     ):
         with torch.no_grad():
             linear_dense_clone = nn.Linear(
-                in_features=linear.in_features, out_features=linear.out_features
+                in_features=linear.in_features,
+                out_features=linear.out_features,
+                bias=False,
             )
             linear_dense_clone.weight = torch.nn.Parameter(
                 linear.parametrizations.weight.original.clone().detach()
             )
         target = torch.ones((3, 3))
         x = torch.ones((3, 3))
+        x2 = x.clone().detach()
         out_sparse = linear(x)
-        out_dense = linear_dense_clone(x)
-        loss1 = torch.abs(target - out_sparse).sum()
+        out_dense = linear_dense_clone(x2)
+        loss1 = (target - out_sparse).sum()
         loss1.backward()
-        loss2 = torch.abs(target - out_dense).sum()
+        loss2 = (target - out_dense).sum()
         loss2.backward()
         grad_target = linear_dense_clone.weight.grad
         assert (grad_target == fake_sparsity_dense_grad_buffer.dense_grad).all()
