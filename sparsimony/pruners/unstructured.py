@@ -74,7 +74,9 @@ class UnstructuredRandomGrower(BaseGrower):
     ) -> torch.Tensor:
         n_grow = cls.get_n_grow(sparsity, mask)
         scores = torch.where(
-            mask == 0, torch.abs(torch.rand_like(mask)), torch.zeros_like(mask)
+            mask == 0,
+            torch.abs(torch.rand_like(mask) + 0.1),  # small eps for avoiding 0s
+            torch.zeros_like(mask),
         )
         if dist.is_initialized():
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
