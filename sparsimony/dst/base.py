@@ -4,6 +4,7 @@ import copy
 import logging
 import torch
 import torch.nn as nn
+import torch.optim as optim
 from torch.ao.pruning.sparsifier.utils import get_arg_info_from_tensor_fqn
 
 from sparsimony.utils import get_mask, get_original_tensor
@@ -13,8 +14,13 @@ _KEYS_NOT_IN_STATE_DICT = ["module", "module_fqn", "tensor_name"]
 
 
 class DSTMixin(ABC):
+    __OPTIM_REG = {optim.SGD: "momentum", optim.AdamW: "exp_avg"}
 
     def __init__(self, optimizer: torch.optim.Optimizer, *args, **kwargs):
+        if type(optimizer) not in self.__OPTIM_REG:
+            raise NotImplementedError(
+                f"DSTMixin does not support optimizer type: {type(optimizer)}"
+            )
         self.optimizer = optimizer
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
@@ -62,10 +68,7 @@ class DSTMixin(ABC):
             for mg in self.groups
         ]
 
-        return {
-            # "state": self.state,
-            "groups": groups
-        }
+        return {"groups": groups}
 
     def load_state_dict(self, state_dict: Dict[str, Any], strict: bool = True):
         groups = copy.deepcopy(state_dict["groups"])
@@ -171,15 +174,15 @@ class DSTMixin(ABC):
                 if config["sparsity"] == 0:
                     continue
                 original_param = get_original_tensor(**config)
-                if "momentum_buffer" in self.optimizer.state[original_param]:
+                state_kw = self.__OPTIM_REG[type(self.optimizer)]
+                if state_kw in self.optimizer.state[original_param]:
                     mask = get_mask(**config)
-                    self.optimizer.state[original_param][
-                        "momentum_buffer"
-                    ] *= mask
+                    self.optimizer.state[original_param][state_kw] *= mask
 
         self.optimizer.step = _momentum_zero_wrapper
 
     def __str__(self) -> str:
+        # TODO: Errors if sparsifier has not been prepared. Fix me
         def neuron_is_active(neuron):
             return neuron.any()
 
