@@ -14,7 +14,7 @@ _KEYS_NOT_IN_STATE_DICT = ["module", "module_fqn", "tensor_name"]
 
 
 class DSTMixin(ABC):
-    _OPTIM_REG = {optim.SGD: "momentum", optim.AdamW: "exp_avg"}
+    _OPTIM_REG = {optim.SGD: "momentum_buffer", optim.AdamW: "exp_avg"}
 
     def __init__(self, optimizer: torch.optim.Optimizer, *args, **kwargs):
         if type(optimizer) not in self._OPTIM_REG:
