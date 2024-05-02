@@ -14,10 +14,10 @@ _KEYS_NOT_IN_STATE_DICT = ["module", "module_fqn", "tensor_name"]
 
 
 class DSTMixin(ABC):
-    __OPTIM_REG = {optim.SGD: "momentum", optim.AdamW: "exp_avg"}
+    _OPTIM_REG = {optim.SGD: "momentum", optim.AdamW: "exp_avg"}
 
     def __init__(self, optimizer: torch.optim.Optimizer, *args, **kwargs):
-        if type(optimizer) not in self.__OPTIM_REG:
+        if type(optimizer) not in self._OPTIM_REG:
             raise NotImplementedError(
                 f"DSTMixin does not support optimizer type: {type(optimizer)}"
             )
@@ -105,7 +105,7 @@ class DSTMixin(ABC):
                 torch.zeros_like(mask, dtype=torch.bool),
             )
             # None of the reinit values should be the same
-            # inactive values should remain as the same values completeness
+            # inactive values should remain as the same values
             try:
                 assert unequal_elements[mask == 1].all()
                 assert not unequal_elements[mask == 0].any()
@@ -174,7 +174,7 @@ class DSTMixin(ABC):
                 if config["sparsity"] == 0:
                     continue
                 original_param = get_original_tensor(**config)
-                state_kw = self.__OPTIM_REG[type(self.optimizer)]
+                state_kw = self._OPTIM_REG[type(self.optimizer)]
                 if state_kw in self.optimizer.state[original_param]:
                     mask = get_mask(**config)
                     self.optimizer.state[original_param][state_kw] *= mask
