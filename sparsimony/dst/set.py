@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, Any
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
@@ -27,6 +27,7 @@ class SET(DSTMixin, BaseSparsifier):
         scheduler: BaseScheduler,
         distribution: BaseDistribution,
         optimizer: torch.optim.Optimizer,
+        defaults: Optional[Dict[str, Any]] = None,
         sparsity: float = 0.5,
         grown_weights_init: float = 0.0,
         init_method: Optional[str] = "grad_flow",
@@ -36,7 +37,8 @@ class SET(DSTMixin, BaseSparsifier):
         self.sparsity = sparsity
         self.grown_weights_init = grown_weights_init
         self.init_method = init_method
-        defaults = dict()
+        if defaults is None:
+            defaults = dict()
         super().__init__(optimizer=optimizer, defaults=defaults)
 
     def prune_mask(
