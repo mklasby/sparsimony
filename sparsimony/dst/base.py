@@ -14,7 +14,11 @@ _KEYS_NOT_IN_STATE_DICT = ["module", "module_fqn", "tensor_name"]
 
 
 class DSTMixin(ABC):
-    _OPTIM_REG = {optim.SGD: "momentum_buffer", optim.AdamW: "exp_avg"}
+    _OPTIM_REG = {
+        optim.SGD: ["momentum_buffer"],
+        optim.AdamW: ["exp_avg", "exp_avg_sq"],
+        optim.Adam: ["exp_avg", "exp_avg_sq"],
+    }
 
     def __init__(self, optimizer: torch.optim.Optimizer, *args, **kwargs):
         if type(optimizer) not in self._OPTIM_REG:
@@ -174,10 +178,11 @@ class DSTMixin(ABC):
                 if config["sparsity"] == 0:
                     continue
                 original_param = get_original_tensor(**config)
-                state_kw = self._OPTIM_REG[type(self.optimizer)]
-                if state_kw in self.optimizer.state[original_param]:
-                    mask = get_mask(**config)
-                    self.optimizer.state[original_param][state_kw] *= mask
+                state_kw_list = self._OPTIM_REG[type(self.optimizer)]
+                mask = get_mask(**config)
+                for state_kw in state_kw_list:
+                    if state_kw in self.optimizer.state[original_param]:
+                        self.optimizer.state[original_param][state_kw] *= mask
 
         self.optimizer.step = _momentum_zero_wrapper
 
