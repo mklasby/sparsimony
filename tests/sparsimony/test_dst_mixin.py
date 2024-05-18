@@ -13,12 +13,14 @@ from sparsimony import rigl
         (5, 5),  # 5x5 mask and initial sparsity of 20%
         # (32, 3, 3),  # 32x3x3 mask and initial sparsity of 90% # TODO: Conv
         (768, 3072),  # 768x3072 mask and initial sparsity of 99%
+        # (768, 670091),
     ],
     ids=[
         "10x10",
         "5x5",
         # "32x3x3",
         "768x3072",
+        # "768x670091",
     ],
 )
 def model(request):
@@ -38,7 +40,7 @@ def id_fn(sparsity):
 
 
 @pytest.mark.parametrize(
-    "sparsity", [0.0, 0.1, 0.5, 0.75, 0.9, 0.99], ids=id_fn
+    "sparsity", [0.0, 0.1, 0.5, 0.75, 0.83, 0.9, 0.99], ids=id_fn
 )
 def test_zero_inactive_param_momentum_buffers_sgd(model, sparsity):
     # Create a mock Linear layer and optimizer
@@ -76,7 +78,7 @@ def test_zero_inactive_param_momentum_buffers_sgd(model, sparsity):
 
 
 @pytest.mark.parametrize(
-    "sparsity", [0.0, 0.1, 0.5, 0.75, 0.9, 0.99], ids=id_fn
+    "sparsity", [0.0, 0.1, 0.5, 0.75, 0.83, 0.9, 0.99], ids=id_fn
 )
 def test_zero_inactive_param_momentum_buffers_adamw(model, sparsity):
     optimizer = optim.AdamW(model.parameters(), lr=0.1)
