@@ -126,7 +126,7 @@ class DSTMixin(ABC):
         self.distribution(sparsity, self.groups, *args, **kwargs)
 
     # @override
-    @torch.no_grad
+    @torch.no_grad()
     def prepare(
         self,
         model: nn.Module,

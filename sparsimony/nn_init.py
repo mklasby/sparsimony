@@ -287,7 +287,7 @@ def calculate_gain(nonlinearity, param=None):
         raise ValueError("Unsupported nonlinearity {}".format(nonlinearity))
 
 
-@torch.no_grad
+@torch.no_grad()
 def grad_flow_init(
     tensor: torch.Tensor,
     sparsity_mask: Optional[torch.Tensor] = None,
