@@ -6,7 +6,6 @@ import numpy as np
 from sparsimony.pruners.base import BasePruner, BaseGrower
 
 _EPS=0.001
-
 class UnstructuredRandomPruner(BasePruner):
     """Pruning method that randomly prunes tensor."""
 
@@ -28,9 +27,9 @@ class UnstructuredRandomPruner(BasePruner):
         Returns:
             torch.Tensor: mask with prune_ratio nnz elements set to 0 randomly.
         """
-        n_drop = int(mask.sum() * prune_ratio)
+        n_drop = int(mask.sum(dtype=torch.int) * prune_ratio)
         scores = torch.where(
-            mask == 1, torch.abs(torch.rand_like(mask)+_EPS), torch.zeros_like(mask)
+            mask == 1, torch.abs(torch.rand_like(mask))+_EPS, torch.zeros_like(mask)
         )
         if dist.is_initialized():
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
@@ -52,7 +51,7 @@ class UnstructuredMagnitudePruner(BasePruner):
         mask: torch.Tensor,
         weights: torch.Tensor,
     ) -> torch.Tensor:
-        n_drop = int(mask.sum() * prune_ratio)
+        n_drop = int(mask.sum(dtype=torch.int) * prune_ratio)
         scores = torch.where(
             mask == 1, torch.abs(weights), torch.full_like(weights, np.inf)
         )
@@ -76,7 +75,7 @@ class UnstructuredRandomGrower(BaseGrower):
         n_grow = cls.get_n_grow(sparsity, mask)
         scores = torch.where(
             mask == 0,
-            torch.abs(torch.rand_like(mask) + _EPS),  # small eps for avoiding 0s
+            torch.abs(torch.rand_like(mask)) + _EPS,  # small eps for avoiding 0s
             torch.zeros_like(mask),
         )
         if dist.is_initialized():
@@ -98,12 +97,12 @@ class UnstructuredGradientGrower(BaseGrower):
     ) -> torch.Tensor:
         if grads is None:
             # Randomly grow
-            grads = torch.rand_like(mask)+_EPS
+            grads = torch.abs(torch.rand_like(mask))+_EPS
         n_grow = cls.get_n_grow(sparsity, mask)
 
         # Set scores of active params to 0
         scores = torch.where(
-            mask == 0, torch.abs(grads)+_EPS, torch.full_like(grads, -1)
+            mask == 0, torch.abs(grads), torch.full_like(grads, -1)
         )
         if dist.is_initialized():
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
