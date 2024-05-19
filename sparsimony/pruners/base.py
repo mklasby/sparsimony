@@ -16,7 +16,9 @@ class BaseGrower(ABC):
     @classmethod
     def get_n_grow(cls, sparsity: float, mask: torch.Tensor) -> int:
         # target_nnz - current nnz
-        n_grow = int(mask.numel() * (1 - sparsity)) - int(mask.sum(dtype=torch.int).item())
+        n_grow = int(mask.numel() * (1 - sparsity)) - int(
+            mask.sum(dtype=torch.int).item()
+        )
         if n_grow < 0:
             raise RuntimeError(
                 f"Current sparsity > target in grow mask! Current n_ones "

@@ -160,11 +160,11 @@ class DSTMixin(ABC):
         actual_n_ones = int(mask.numel() * (1 - sparsity_level))
         if n_ones != actual_n_ones:
             # With very large mask tensors, we may have some precision errors
-            # with exact n_ones. Therefore, we simply log the warning instead of 
+            # with exact n_ones. Therefore, we simply log the warning instead of
             # raising.
             self._logger.warning(
-                    f"n_ones actual{n_ones} != n_one target {actual_n_ones}"
-                )
+                f"n_ones actual{n_ones} != n_one target {actual_n_ones}"
+            )
 
     # @override
     def step(self) -> bool:
