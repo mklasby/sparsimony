@@ -5,7 +5,9 @@ import numpy as np
 
 from sparsimony.pruners.base import BasePruner, BaseGrower
 
-_EPS=0.001
+_EPS = 0.001
+
+
 class UnstructuredRandomPruner(BasePruner):
     """Pruning method that randomly prunes tensor."""
 
@@ -29,7 +31,9 @@ class UnstructuredRandomPruner(BasePruner):
         """
         n_drop = int(mask.sum(dtype=torch.int) * prune_ratio)
         scores = torch.where(
-            mask == 1, torch.abs(torch.rand_like(mask))+_EPS, torch.zeros_like(mask)
+            mask == 1,
+            torch.abs(torch.rand_like(mask)) + _EPS,
+            torch.zeros_like(mask),
         )
         if dist.is_initialized():
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
@@ -75,7 +79,8 @@ class UnstructuredRandomGrower(BaseGrower):
         n_grow = cls.get_n_grow(sparsity, mask)
         scores = torch.where(
             mask == 0,
-            torch.abs(torch.rand_like(mask)) + _EPS,  # small eps for avoiding 0s
+            torch.abs(torch.rand_like(mask))
+            + _EPS,  # small eps for avoiding 0s
             torch.zeros_like(mask),
         )
         if dist.is_initialized():
@@ -97,7 +102,7 @@ class UnstructuredGradientGrower(BaseGrower):
     ) -> torch.Tensor:
         if grads is None:
             # Randomly grow
-            grads = torch.abs(torch.rand_like(mask))+_EPS
+            grads = torch.abs(torch.rand_like(mask)) + _EPS
         n_grow = cls.get_n_grow(sparsity, mask)
 
         # Set scores of active params to 0
