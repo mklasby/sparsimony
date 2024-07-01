@@ -28,6 +28,7 @@ class DSTMixin(ABC):
         self.optimizer = optimizer
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
+        self.prepared = False
         super().__init__(*args, **kwargs)
 
     @abstractmethod
@@ -137,6 +138,7 @@ class DSTMixin(ABC):
         self._broadcast_masks()
         self.adjust_init_for_sparsity()
         self.zero_inactive_param_momentum_buffers()
+        self.prepared = True
 
     def _broadcast_masks(self) -> None:
         for config in self.groups:
@@ -192,29 +194,42 @@ class DSTMixin(ABC):
         self.optimizer.step = _momentum_zero_wrapper
 
     def __str__(self) -> str:
-        # TODO: Errors if sparsifier has not been prepared. Fix me
         def neuron_is_active(neuron):
-            return neuron.any()
-
-        global_sparsity = self.calculate_global_sparsity().item()
-        layerwise_sparsity_target = []
-        layerwise_sparsity_actual = []
-        active_neurons = []
-        total_neurons = []
-        for config in self.groups:
-            layerwise_sparsity_target.append(config["sparsity"])
-            mask = get_mask(**config)
-            layerwise_sparsity_actual.append(
-                self.calculate_mask_sparsity(mask).item()
+                return neuron.any()
+        if self.prepared:
+            global_sparsity = self.calculate_global_sparsity().item()
+            layerwise_sparsity_target = []
+            layerwise_sparsity_actual = []
+            active_neurons = []
+            total_neurons = []
+            for config in self.groups:
+                layerwise_sparsity_target.append(config["sparsity"])
+                mask = get_mask(**config)
+                layerwise_sparsity_actual.append(
+                    self.calculate_mask_sparsity(mask).item()
+                )
+                active_neurons.append(
+                    torch.vmap(neuron_is_active)(mask).sum().item()
+                )
+                total_neurons.append(len(mask))
+            active_vs_total_neurons = []
+            for a, t in list(zip(active_neurons, total_neurons)):
+                active_vs_total_neurons.append(f"{a}/{t}")
+            # TODO: Should list ignored_layers from distribution
+            return (
+                f"{self.__class__.__name__}\n"
+                f"Scheduler: {self.scheduler.__class__.__name__}\n"
+                f"Distribution: {self.distribution.__class__.__name__}\n"
+                f"Grown weights init to: {self.grown_weights_init}\n"
+                "Re-init method for sparse weights during .prepare(): "
+                f"{self.init_method}\n"
+                f"Step No.: {self._step_count}\n"
+                f"Global Sparsity Target: {self.sparsity}\n"
+                f"Global Sparsity Actual: {global_sparsity}\n"
+                f"Layerwise Sparsity Targets: {layerwise_sparsity_target}\n"
+                f"Layerwise Sparsity Actual: {layerwise_sparsity_actual}\n"
+                f"Active/Total Neurons: {active_vs_total_neurons}"
             )
-            active_neurons.append(
-                torch.vmap(neuron_is_active)(mask).sum().item()
-            )
-            total_neurons.append(len(mask))
-        active_vs_total_neurons = []
-        for a, t in list(zip(active_neurons, total_neurons)):
-            active_vs_total_neurons.append(f"{a}/{t}")
-        # TODO: Should list ignored_layers from distribution
         return (
             f"{self.__class__.__name__}\n"
             f"Scheduler: {self.scheduler.__class__.__name__}\n"
@@ -224,10 +239,10 @@ class DSTMixin(ABC):
             f"{self.init_method}\n"
             f"Step No.: {self._step_count}\n"
             f"Global Sparsity Target: {self.sparsity}\n"
-            f"Global Sparsity Actual: {global_sparsity}\n"
-            f"Layerwise Sparsity Targets: {layerwise_sparsity_target}\n"
-            f"Layerwise Sparsity Actual: {layerwise_sparsity_actual}\n"
-            f"Active/Total Neurons: {active_vs_total_neurons}"
+            f"Global Sparsity Actual: Error: Sparsifier's prepare() method must be called first. \n"
+            f"Layerwise Sparsity Targets: Error: Sparsifier's prepare() method must be called first.\n"
+            f"Layerwise Sparsity Actual: Error: Sparsifier's prepare() method must be called first.\n"
+            f"Active/Total Neurons: Error: Sparsifier's prepare() method must be called first."
         )
 
     def __repr__(self) -> str:
