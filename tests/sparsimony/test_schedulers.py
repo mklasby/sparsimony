@@ -11,11 +11,11 @@ from sparsimony.schedulers.base import (
 class TestSchedulers:
     @pytest.fixture
     def constant_scheduler(self):
-        return ConstantScheduler(pruning_ratio=0.5, t_end=10, delta_t=2)
+        return ConstantScheduler(quantity=0.5, t_end=10, delta_t=2)
 
     @pytest.fixture
     def cosine_decay_scheduler(self):
-        return CosineDecayScheduler(pruning_ratio=0.5, t_end=10, delta_t=2)
+        return CosineDecayScheduler(quantity=0.5, t_end=10, delta_t=2)
 
     def test_constant_scheduler_call(self, constant_scheduler):
         # Test for step before t_end and divisible by delta_t
@@ -29,7 +29,7 @@ class TestSchedulers:
         # Test for step before t_end and divisible by delta_t
         assert cosine_decay_scheduler(
             2
-        ) == cosine_decay_scheduler.pruning_ratio / 2 * (
+        ) == cosine_decay_scheduler.quantity / 2 * (
             1 + np.cos((2 * np.pi) / cosine_decay_scheduler.t_end)
         )
         # Test for step not divisible by delta_t
@@ -39,9 +39,9 @@ class TestSchedulers:
 
 
 def id_fn(args):
-    pruning_ratio, t_end, delta_t, t_grow = args
+    quantity, t_end, delta_t, t_grow = args
     return (
-        f"pruning_ratio: {pruning_ratio} t_end: {t_end} delta_t: {delta_t} "
+        f"pruning_ratio: {quantity} t_end: {t_end} delta_t: {delta_t} "
         f"t_grow: {t_grow}"
     )
 
@@ -52,7 +52,7 @@ class TestSoftMemoryBound:
     def scheduler(self, request):
         pruning_ratio, t_end, delta_t, t_grow = request.param
         _scheduler = SoftMemoryBoundScheduler(
-            pruning_ratio=pruning_ratio,
+            quantity=pruning_ratio,
             t_end=t_end,
             delta_t=delta_t,
             t_grow=t_grow,
@@ -90,7 +90,7 @@ class TestSoftMemoryBound:
                 assert scheduler.next_step_update(step) is False
 
     def test_call(self, scheduler):
-        pruning_ratio = scheduler.pruning_ratio
+        pruning_ratio = scheduler.quantity
         t_end = scheduler.t_end
         delta_t = scheduler.delta_t
         t_grow = scheduler.t_grow

@@ -14,6 +14,7 @@ _KEYS_NOT_IN_STATE_DICT = ["module", "module_fqn", "tensor_name"]
 
 
 class DSTMixin(ABC):
+    # TODO: Consider extracting additional base class for pruners / one shot
     _OPTIM_REG = {
         optim.SGD: ["momentum_buffer"],
         optim.AdamW: ["exp_avg", "exp_avg_sq"],
@@ -91,7 +92,7 @@ class DSTMixin(ABC):
             torch.distributed.broadcast(t, from_rank)
 
     def adjust_init_for_sparsity(self) -> None:
-        if self.init_method is None:
+        if not hasattr(self, "init_method") or self.init_method is None:
             return
         for config in self.groups:
             if config["sparsity"] == 0:
@@ -217,6 +218,11 @@ class DSTMixin(ABC):
             for a, t in list(zip(active_neurons, total_neurons)):
                 active_vs_total_neurons.append(f"{a}/{t}")
             # TODO: Should list ignored_layers from distribution
+            grown_weights_init = getattr(
+                self, "grown_weights_init", "Disabled, no regrowth"
+            )
+            init_method = getattr(self, "init_method", "Disabled, no re-init")
+
         else:
             err_message = (
                 "Error: Sparsifier's prepare() method must be called first."
@@ -229,9 +235,9 @@ class DSTMixin(ABC):
             f"{self.__class__.__name__}\n"
             f"Scheduler: {self.scheduler.__class__.__name__}\n"
             f"Distribution: {self.distribution.__class__.__name__}\n"
-            f"Grown weights init to: {self.grown_weights_init}\n"
+            f"Grown weights init to: {grown_weights_init}\n"
             "Re-init method for sparse weights during .prepare(): "
-            f"{self.init_method}\n"
+            f"{init_method}\n"
             f"Step No.: {self._step_count}\n"
             f"Global Sparsity Target: {self.sparsity}\n"
             f"Global Sparsity Actual: {global_sparsity}\n"
