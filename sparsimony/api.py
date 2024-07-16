@@ -37,7 +37,7 @@ def rigl(
     """
     return RigL(
         scheduler=CosineDecayScheduler(
-            pruning_ratio=pruning_ratio,
+            quantity=pruning_ratio,
             t_end=t_end,
             delta_t=delta_t,
         ),
@@ -72,7 +72,7 @@ def set(
     """
     return SET(
         scheduler=ConstantScheduler(
-            pruning_ratio=pruning_ratio,
+            quantity=pruning_ratio,
             t_end=t_end,
             delta_t=delta_t,
         ),
