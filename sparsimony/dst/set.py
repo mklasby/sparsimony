@@ -31,6 +31,8 @@ class SET(DSTMixin, BaseSparsifier):
         sparsity: float = 0.5,
         grown_weights_init: float = 0.0,
         init_method: Optional[str] = "grad_flow",
+        *args,
+        **kwargs,
     ):
         self.scheduler = scheduler
         self.distribution = distribution
@@ -47,7 +49,7 @@ class SET(DSTMixin, BaseSparsifier):
         mask: torch.Tensor,
         weights: torch.Tensor,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
             prune_ratio, mask, weights
@@ -77,7 +79,8 @@ class SET(DSTMixin, BaseSparsifier):
         # Overwrite old mask
         mask.data = new_mask.data
 
-    def _step(self) -> None:
+    def _step(self) -> bool:
+        _topo_updated = False
         self._step_count += 1
         prune_ratio = self.scheduler(self._step_count)
         if prune_ratio is not None:
@@ -86,10 +89,9 @@ class SET(DSTMixin, BaseSparsifier):
                 config["prune_ratio"] = prune_ratio
                 self.update_mask(**config)
             self._broadcast_masks()
+            _topo_updated = True
         self._step_count += 1
-
-    def _assert_sparsity_level(self, mask, sparsity_level):
-        assert mask.sum() == int(mask.numel() * sparsity_level)
+        return _topo_updated
 
     def update_mask(
         self,
@@ -97,7 +99,7 @@ class SET(DSTMixin, BaseSparsifier):
         tensor_name: str,
         sparsity: float,
         prune_ratio: float,
-        **kwargs
+        **kwargs,
     ):
         mask = get_mask(module, tensor_name)
         if sparsity == 0:

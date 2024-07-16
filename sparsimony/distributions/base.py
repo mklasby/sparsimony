@@ -24,6 +24,8 @@ class BaseDistribution(ABC):
         self.excluded_types = excluded_types
         if excluded_mod_name_regexs is None:
             excluded_mod_name_regexs = []
+        elif isinstance(excluded_mod_name_regexs, str):
+            excluded_mod_name_regexs = [excluded_mod_name_regexs]
         self.excluded_mod_name_regexs = excluded_mod_name_regexs
         self._logger = logging.getLogger(__name__)
         self._cache: Dict[float, List[float]] = dict()
