@@ -75,17 +75,26 @@ class SoftMemoryBoundScheduler(BaseScheduler):
         assert t_grow < delta_t
 
     def next_step_update(self, last_step: int) -> bool:
+        if last_step + 1 > self.t_end:
+            return False
         if last_step % self.delta_t == (self.delta_t - self.t_grow):
             # start filling buffers for grow step
             return True
-        # elif (last_step + 1) % self.delta_t == self.t_grow:
+        # elif last_step % self.delta_t == 0:
+        #     return True
+        # elif (
+        #     last_step % self.delta_t == self.t_grow and last_step > self.delta_t  # noqa
+        # ):
+        #     # Prune next step (need plus one?)
         #     return True
         return False
 
     def __call__(self, step: int) -> Optional[float]:
+        if step > self.t_end:
+            return None
         if step % self.delta_t == 0:
             return -self.pruning_ratio  # Grow by prune ratio
-        elif step % (self.delta_t + self.t_grow) == 0:
+        elif step % self.delta_t == self.t_grow and step > self.delta_t:
             return self.pruning_ratio  # Prune by prune ratio
         else:
             return None

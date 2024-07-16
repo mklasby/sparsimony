@@ -26,6 +26,8 @@ class RigL(DSTMixin, BaseSparsifier):
         sparsity: float = 0.5,
         grown_weights_init: float = 0.0,
         init_method: Optional[str] = "grad_flow",
+        *args,
+        **kwargs,
     ):
         self.scheduler = scheduler
         self.distribution = distribution
@@ -78,6 +80,7 @@ class RigL(DSTMixin, BaseSparsifier):
         self._step_count += 1
         prune_ratio = self.scheduler(self._step_count)
         if prune_ratio is not None:
+            self._logger.info(f"Updating topology at step {self._step_count}")
             self._distribute_sparsity(self.sparsity)
             for config in self.groups:
                 config["prune_ratio"] = prune_ratio
