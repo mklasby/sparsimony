@@ -94,6 +94,7 @@ class DSTMixin(ABC):
     def adjust_init_for_sparsity(self) -> None:
         if not hasattr(self, "init_method") or self.init_method is None:
             return
+
         for config in self.groups:
             if config["sparsity"] == 0:
                 continue

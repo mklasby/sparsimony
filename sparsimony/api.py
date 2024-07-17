@@ -147,5 +147,4 @@ def static(
         optimizer=optimizer,
         distribution=UniformDistribution(),
         sparsity=sparsity,
-        init_method="sparse_torch",
     )

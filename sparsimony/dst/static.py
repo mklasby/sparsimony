@@ -8,19 +8,16 @@ from sparsimony.pruners.unstructured import UnstructuredMagnitudePruner
 from sparsimony.utils import get_mask
 
 
-# TODO - double check init_method
 class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
     def __init__(
         self,
         optimizer: torch.optim.Optimizer,
         distribution: BaseDistribution,
         sparsity: float,
-        init_method: str = "sparse_torch",
     ):
         optimizer = optimizer
         self.distribution = distribution
         self.sparsity = sparsity
-        self.init_method = init_method
         defaults = dict(parametrization=FakeSparsity)
         super().__init__(optimizer=optimizer, defaults=defaults)
 
