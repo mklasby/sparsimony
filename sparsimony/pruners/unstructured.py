@@ -64,7 +64,9 @@ class UnstructuredMagnitudePruner(BasePruner):
         _, indices = torch.topk(scores.reshape(-1), k=n_drop, largest=False)
         mask = (
             mask.reshape(-1)
-            .scatter(dim=0, index=indices, src=torch.zeros_like(mask.reshape(-1)))
+            .scatter(
+                dim=0, index=indices, src=torch.zeros_like(mask.reshape(-1))
+            )
             .reshape(mask.shape)
         )
         return mask

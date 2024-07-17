@@ -8,7 +8,7 @@ from sparsimony.pruners.unstructured import UnstructuredMagnitudePruner
 from sparsimony.utils import get_mask
 
 
-# TODO - double check if the current default init_method is good to go for static sparsity
+# TODO - double check init_method
 class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
     def __init__(
         self,
@@ -17,7 +17,6 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
         sparsity: float,
         init_method: str = "sparse_torch",
     ):
-        
         optimizer = optimizer
         self.distribution = distribution
         self.sparsity = sparsity
