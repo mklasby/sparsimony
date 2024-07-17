@@ -65,7 +65,7 @@ class UnstructuredMagnitudePruner(BasePruner):
         mask = (
             mask.view(-1)
             .scatter(
-                dim=0, index=indices, src=torch.zeros_like(mask.vşew(-1))
+                dim=0, index=indices, src=torch.zeros_like(mask.view(-1))
             )
             .reshape(mask.shape)
         )
