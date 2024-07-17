@@ -29,17 +29,10 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
         for config in self.groups:
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
-            original_weights = getattr(
-                config["module"].parametrizations, config["tensor_name"]
-            ).original
-
-            print(f"Original weights shape: {original_weights.shape}")
-            print(f"Mask shape: {mask.shape}")
-
+            weights = getattr(config["module"], config["tensor_name"])
             mask.data = UnstructuredMagnitudePruner.calculate_mask(
-                config["sparsity"], mask, original_weights
+                config["sparsity"], mask, weights
             )
-            print(f"Mask 1s after pruning: {mask.sum()}")
             self._assert_sparsity_level(mask.data, self.sparsity)
 
     def _step(self):

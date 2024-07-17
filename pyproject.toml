@@ -27,6 +27,7 @@ packages= [
 python = ">=3.9,<=3.12"
 torch=">=2.0"
 numpy="1.*"
+timm = "^1.0.7"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.0.0"
