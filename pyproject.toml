@@ -27,7 +27,6 @@ packages= [
 python = ">=3.9,<=3.12"
 torch=">=2.0"
 numpy="1.*"
-timm = "^1.0.7"
 
 [tool.poetry.group.dev.dependencies]
 flake8 = "^7.0.0"
@@ -35,7 +34,6 @@ black = "^24.2.0"
 pre-commit = "^3.6.2"
 pytest = "^8.1.1"
 pytest-cov = "^5.0.0"
-ipykernel = "^6.29.5"
 
 
 [tool.poetry.urls]
