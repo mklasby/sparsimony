@@ -14,6 +14,7 @@ from sparsimony.schedulers.base import (
 from sparsimony.dst.rigl import RigL
 from sparsimony.dst.set import SET
 from sparsimony.dst.gmp import GMP
+from sparsimony.dst.static import StaticMagnitudeSparsifier
 
 
 def rigl(
@@ -98,14 +99,9 @@ def gmp(
 ):
     """GMP* implementation by Kurtic et al.
     https://proceedings.mlr.press/v234/kurtic24a.html
-
-    Args:
-        optimizer (torch.optim.Optimizer): Previously initialized optimizer for
-            training. Used to override the dense gradient buffers for
-            sparse weights.
         t_accel (int): Step to jump to accelerated sparsity level
         t_end (int): Step to stop pruning model
-        distribution (Optional[BaseDistribution], optional): Layerwise sparisty
+        distribution (Optional[BaseDistribution], optional): Layerwise sparsity
             distribution. If None, uses uniform. Defaults to None.
         delta_t (int, optional): Steps between topology update. Defaults to 100.
         initial_sparsity (float, optional): Defaults to 0.0.
@@ -129,4 +125,27 @@ def gmp(
         ),
         distribution=distribution,
         optimizer=optimizer,
+    )
+
+
+def static(
+    optimizer: torch.optim.Optimizer,
+    sparsity: float,
+) -> StaticMagnitudeSparsifier:
+    """Return StaticMagnitude sparsifier.
+
+    Args:
+        optimizer (torch.optim.Optimizer): Previously initialized optimizer for
+            training. Used to override the dense gradient buffers for
+            sparse weights.
+        sparsity (float): Sparsity level to prune network to.
+
+    Returns:
+        StaticMagnitudeSparsifier: Initialized StaticMagnitude sparsifier.
+    """
+    return StaticMagnitudeSparsifier(
+        optimizer=optimizer,
+        distribution=UniformDistribution(),
+        sparsity=sparsity,
+        init_method="sparse_torch",
     )
