@@ -55,7 +55,7 @@ class UnstructuredMagnitudePruner(BasePruner):
         mask: torch.Tensor,
         weights: torch.Tensor,
     ) -> torch.Tensor:
-        n_drop = int(mask.sum() * prune_ratio)
+        n_drop = int(mask.sum(dtype=torch.int) * prune_ratio)
         scores = torch.where(
             mask == 1, torch.abs(weights), torch.full_like(weights, np.inf)
         )

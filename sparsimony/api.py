@@ -99,6 +99,11 @@ def gmp(
 ):
     """GMP* implementation by Kurtic et al.
     https://proceedings.mlr.press/v234/kurtic24a.html
+
+    Args:
+        optimizer (torch.optim.Optimizer): Previously initialized optimizer for
+            training. Used to override the dense gradient buffers for
+            sparse weights.
         t_accel (int): Step to jump to accelerated sparsity level
         t_end (int): Step to stop pruning model
         distribution (Optional[BaseDistribution], optional): Layerwise sparsity
