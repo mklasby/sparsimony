@@ -61,4 +61,4 @@ def share_parametrizations(
             f"replica is parametrized with type {type(replica_para)}"
         )
     for name, _ in primary_para.named_buffers():
-        setattr(replica, name, getattr(primary, name))
+        setattr(replica_para, name, getattr(primary_para, name))

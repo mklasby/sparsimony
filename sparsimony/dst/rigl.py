@@ -1,4 +1,5 @@
 from typing import Optional, Dict, Any
+from sparsimony import parametrization
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
@@ -6,7 +7,7 @@ from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsityDenseGradBuffer
-from sparsimony.utils import get_mask
+from sparsimony.utils import get_mask, get_parametrization
 from sparsimony.dst.base import DSTMixin
 from sparsimony.pruners.unstructured import (
     UnstructuredMagnitudePruner,
@@ -36,7 +37,9 @@ class RigL(DSTMixin, BaseSparsifier):
         self.init_method = init_method
         if defaults is None:
             defaults = dict(parametrization=FakeSparsityDenseGradBuffer)
-        super().__init__(optimizer=optimizer, defaults=defaults)
+        super().__init__(
+            optimizer=optimizer, defaults=defaults, *args, **kwargs
+        )
 
     def prune_mask(
         self,
@@ -101,17 +104,25 @@ class RigL(DSTMixin, BaseSparsifier):
 
     def _accumulate_grads(self) -> None:
         for config in self.groups:
-            config["module"].parametrizations.weight[0].accumulate = True
+            parametrization = get_parametrization(
+                config["module"], tensor_name=config["tensor_name"]
+            )
+            parametrization.accumulate = True
 
     def _initialize_masks(self) -> None:
         self._distribute_sparsity(self.sparsity)
         for config in self.groups:
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
-            # Randomly prune for step 1
-            mask.data = UnstructuredRandomPruner.calculate_mask(
-                config["sparsity"], mask
-            )
+            if self.random_mask_init:
+                # Randomly prune for step 1
+                mask.data = UnstructuredRandomPruner.calculate_mask(
+                    config["sparsity"], mask
+                )
+            else:
+                # use pruning criterion
+                weights = getattr(config["module"], config["tensor_name"])
+                mask.data = self.prune_mask(config["sparsity"], mask, weights)
 
     def update_mask(
         self,
