@@ -1,5 +1,4 @@
 from typing import Optional, Dict, Any
-from sparsimony import parametrization
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
