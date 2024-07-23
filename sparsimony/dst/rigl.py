@@ -85,6 +85,14 @@ class RigL(DSTMixin, BaseSparsifier):
             self._logger.info(f"Updating topology at step {self._step_count}")
             self._distribute_sparsity(self.sparsity)
             for config in self.groups:
+                parametrization = get_parametrization(
+                    config["module"], config["tensor_name"]
+                )
+                if (
+                    hasattr(parametrization, "is_replica_")
+                    and parametrization.is_replica_
+                ):
+                    continue
                 config["prune_ratio"] = prune_ratio
                 config["dense_grads"] = self._get_dense_grads(**config)
                 self.update_mask(**config)

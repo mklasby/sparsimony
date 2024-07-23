@@ -43,6 +43,8 @@ def share_parametrizations(
     tensor_name: str = "weight",
     param_idx: int = 0,
 ):
+    if primary is replica:
+        return  # no op
     __SUPPORTED_PARAMETRIZATIONS = [FakeSparsity, FakeSparsityDenseGradBuffer]
     if not hasattr(primary, "parametrizations") or not hasattr(
         replica, "parametrizations"
@@ -60,5 +62,11 @@ def share_parametrizations(
             f"Primary is parametrized with type {type(primary_para)} but "
             f"replica is parametrized with type {type(replica_para)}"
         )
+    if hasattr(primary_para, "is_replica_") and primary_para.is_replica_:
+        raise ValueError(
+            "Primary module parametrization has already been "
+            "registered as a replica!"
+        )
     for name, _ in primary_para.named_buffers():
         setattr(replica_para, name, getattr(primary_para, name))
+    replica_para.is_replica_ = True  # state to track if this mod
