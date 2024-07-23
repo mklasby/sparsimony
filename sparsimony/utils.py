@@ -70,3 +70,7 @@ def share_parametrizations(
     for name, _ in primary_para.named_buffers():
         setattr(replica_para, name, getattr(primary_para, name))
     replica_para.is_replica_ = True  # state to track if this mod
+    if hasattr(primary_para, "replicas_"):
+        primary_para.replicas_.append(replica_para)
+    else:
+        primary_para.replicas_ = [replica_para]
