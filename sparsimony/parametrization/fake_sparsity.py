@@ -21,9 +21,14 @@ class FakeSparsity(nn.Module):
         self.register_buffer("mask", mask)
 
     def forward(self, x):
-        # print("in fake sparsity forward")
         assert self.mask.shape == x.shape
         return self.mask * x
+
+    def _broadcast_to_replicas(self):
+        replicas = getattr(self, "replicas_", [])
+        for r in replicas:
+            for n, b in self.named_buffers():
+                setattr(r, n, b)
 
 
 class FakeSparsityDenseGradBuffer(FakeSparsity):

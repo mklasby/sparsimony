@@ -21,12 +21,28 @@ class DSTMixin(ABC):
         optim.Adam: ["exp_avg", "exp_avg_sq"],
     }
 
-    def __init__(self, optimizer: torch.optim.Optimizer, *args, **kwargs):
+    def __init__(
+        self,
+        optimizer: torch.optim.Optimizer,
+        random_mask_init: bool = True,
+        *args,
+        **kwargs,
+    ):
+        """Mixin class to extend BaseSparisifer for DST algorithms
+
+        Args:
+            optimizer (torch.optim.Optimizer): Optimizer registered to model
+                params
+            random_mask_init (bool, optional): If True, randomly prune mask at
+                initialization. Otherwise, use pruning criteria. Defaults to
+                True.
+        """
         if type(optimizer) not in self._OPTIM_REG:
             raise NotImplementedError(
                 f"DSTMixin does not support optimizer type: {type(optimizer)}"
             )
         self.optimizer = optimizer
+        self.random_mask_init = random_mask_init
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
         self.prepared_ = False
