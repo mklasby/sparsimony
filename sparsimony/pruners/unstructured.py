@@ -2,7 +2,7 @@ import torch
 import torch.distributed as dist
 from typing import Optional
 import numpy as np
-
+from sparsimony.utils import calculate_n_drop
 from sparsimony.pruners.base import BasePruner, BaseGrower
 
 _EPS = 0.001
@@ -14,22 +14,24 @@ class UnstructuredRandomPruner(BasePruner):
     @classmethod
     def calculate_mask(
         cls,
-        prune_ratio: float,
+        sparsity: float,
         mask: torch.Tensor,
     ) -> torch.Tensor:
-        """Randomly prunes non-zero elements in mask by prune_ratio.
+        """Randomly prunes non-zero elements in a mask by a target sparsity.
 
-        eg., a 90% sparse mask with a 30% pruning ratio will return at 93%
+        eg., a 90% sparse mask, with target 30% sparsity will return an 87%
         sparse mask. Caller should overwrite mask.data with returned value.
 
         Args:
-            prune_ratio (float): % of currently inactive weights to prune.
+            sparsity (float): Target sparsity modification to elements
+                Should be a float between 0 and 1.
+
             mask (torch.Tensor): Mask to be applied to weight tensor.
 
         Returns:
             torch.Tensor: mask with prune_ratio nnz elements set to 0 randomly.
         """
-        n_drop = int(mask.sum(dtype=torch.int) * prune_ratio)
+        n_drop = calculate_n_drop(mask, sparsity)
         scores = torch.where(
             mask == 1,
             torch.abs(torch.rand_like(mask)) + _EPS,
@@ -51,11 +53,11 @@ class UnstructuredMagnitudePruner(BasePruner):
     @classmethod
     def calculate_mask(
         cls,
-        prune_ratio: float,
+        sparsity: float,
         mask: torch.Tensor,
         weights: torch.Tensor,
     ) -> torch.Tensor:
-        n_drop = int(mask.sum(dtype=torch.int) * prune_ratio)
+        n_drop = calculate_n_drop(mask, sparsity)
         scores = torch.where(
             mask == 1, torch.abs(weights), torch.full_like(weights, np.inf)
         )
