@@ -1,10 +1,11 @@
 # sparsimony
+
 ![CI Pipeline](https://github.com/mklasby/sparsimony/actions/workflows/ci.yaml/badge.svg)
 ![CD Pipeline](https://github.com/mklasby/sparsimony/actions/workflows/cd.yaml/badge.svg)
 
-Under development. 
+Under development.
 
-Example usage: 
+Example usage:
 
 ```
 from sparsimony import rigl
@@ -70,6 +71,7 @@ Steps to initialize your project:
       pip3 install poetry==${poetry-version}
       poetry install -vvv
       git submodule init && git submodule update
+      pre-commit install
       ```
    2. `docker`:
       1. vscode:
