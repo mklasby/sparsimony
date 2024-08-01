@@ -23,6 +23,9 @@ packages= [
     {include = "sparsimony"}
 ]
 
+[tool.poetry.scripts]
+post-install = "pre_commit_setup:install"
+
 [tool.poetry.dependencies]
 python = ">=3.9,<=3.12"
 torch=">=2.0"
