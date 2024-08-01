@@ -2,11 +2,10 @@ import pytest
 import torch
 
 from sparsimony.pruners.unstructured import (
+    BasePruner,
     UnstructuredRandomPruner,
     UnstructuredMagnitudePruner,
 )
-
-from sparsimony.utils import calculate_n_drop
 
 
 @pytest.fixture(
@@ -50,9 +49,9 @@ def mask(request):
 @pytest.fixture(
     scope="function",
     params=[0.0, 0.2, 0.5, 0.9, 0.99],
-    ids=[f" sparsity:{p}" for p in [0.0, 0.2, 0.5, 0.9, 0.99]],
+    ids=[f" prune_ratio:{p*100}%" for p in [0.0, 0.2, 0.5, 0.9, 0.99]],
 )
-def sparsity(request):
+def prune_ratio(request):
     return request.param
 
 
@@ -61,14 +60,15 @@ def weights(mask):
     return torch.rand_like(mask) * mask
 
 
-def test_n_drop_util(mask, sparsity):
-    n_drop_util = calculate_n_drop(mask, sparsity)
-    n_drop_with_prune_ratio = int(mask.sum(dtype=torch.int) * sparsity)
-    assert n_drop_util == n_drop_with_prune_ratio
+def test_prune_ratio_sparsity_conversion(mask, prune_ratio):
+    sparsity = BasePruner.get_sparsity_from_prune_ratio(mask, prune_ratio)
+    prune_ratio_test = BasePruner.get_prune_ratio_from_sparsity(mask, sparsity)
+    assert prune_ratio == round(prune_ratio_test.item(), 2)
 
 
-def test_unstructured_random_pruner(mask, sparsity):
+def test_unstructured_random_pruner(mask, prune_ratio):
     # Call the method to be tested
+    sparsity = BasePruner.get_sparsity_from_prune_ratio(mask, prune_ratio)
     pruned_mask = UnstructuredRandomPruner.calculate_mask(sparsity, mask)
 
     # Assertions
@@ -77,16 +77,17 @@ def test_unstructured_random_pruner(mask, sparsity):
 
     # Calculate the expected number of non-zero elements after pruning
     # Total elements minus number of zero elements.
-    expected_nonzero = mask.sum() - int(mask.sum() * sparsity)
+    expected_nonzero = mask.sum() - int(mask.sum() * prune_ratio)
     assert torch.count_nonzero(pruned_mask) == expected_nonzero
 
 
-def test_unstructured_pruners(mask, sparsity, weights):
+def test_unstructured_pruners(mask, prune_ratio, weights):
     # Seed weights with known values
     weights = torch.where(
         mask == 1, torch.full_like(weights, 100), torch.zeros_like(weights)
     )
-    n_drop = calculate_n_drop(mask, sparsity)
+    sparsity = BasePruner.get_sparsity_from_prune_ratio(mask, prune_ratio)
+    n_drop = BasePruner.calculate_n_drop(mask, sparsity)
     _, idx = torch.topk(weights.view(-1), k=n_drop, largest=True)
     weights = torch.scatter(
         weights.view(-1),
@@ -104,7 +105,7 @@ def test_unstructured_pruners(mask, sparsity, weights):
     assert pruned_mask.data_ptr() != mask.data_ptr()
 
     # Calculate the expected number of non-zero elements after pruning
-    expected_nonzero = mask.sum() - int(mask.sum() * sparsity)
+    expected_nonzero = mask.sum() - int(mask.sum() * prune_ratio)
     assert torch.count_nonzero(pruned_mask) == expected_nonzero
 
     # Assert correct values were dropped!
