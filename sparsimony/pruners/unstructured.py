@@ -2,6 +2,7 @@ import torch
 import torch.distributed as dist
 from typing import Optional
 import numpy as np
+
 from sparsimony.pruners.base import BasePruner, BaseGrower
 
 _EPS = 0.001
@@ -22,7 +23,7 @@ class UnstructuredRandomPruner(BasePruner):
         sparse mask. Caller should overwrite mask.data with returned value.
 
         Args:
-            sparsity (float): Target sparsity modification to elements
+            sparsity (float): Target sparsity after pruning
                 Should be a float between 0 and 1.
 
             mask (torch.Tensor): Mask to be applied to weight tensor.
