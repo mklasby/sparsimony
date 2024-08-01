@@ -29,20 +29,6 @@ class BasePruner(ABC):
         )
         return n_drop
 
-    @staticmethod
-    def get_prune_ratio_from_sparsity(
-        mask: torch.Tensor, sparsity: float
-    ) -> float:
-        current_sparsity = (mask == 0).sum() / mask.numel()
-        return (sparsity - current_sparsity) / (1 - current_sparsity)
-
-    @staticmethod
-    def get_sparsity_from_prune_ratio(
-        mask: torch.Tensor, prune_ratio: float
-    ) -> float:
-        current_sparsity = (mask == 0).sum() / mask.numel()
-        return (prune_ratio * (1 - current_sparsity)) + current_sparsity
-
 
 class BaseGrower(ABC):
 

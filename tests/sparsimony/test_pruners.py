@@ -6,6 +6,7 @@ from sparsimony.pruners.unstructured import (
     UnstructuredRandomPruner,
     UnstructuredMagnitudePruner,
 )
+from sparsimony.dst.base import DSTMixin
 
 
 @pytest.fixture(
@@ -61,14 +62,14 @@ def weights(mask):
 
 
 def test_prune_ratio_sparsity_conversion(mask, prune_ratio):
-    sparsity = BasePruner.get_sparsity_from_prune_ratio(mask, prune_ratio)
-    prune_ratio_test = BasePruner.get_prune_ratio_from_sparsity(mask, sparsity)
+    sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
+    prune_ratio_test = DSTMixin.get_prune_ratio_from_sparsity(mask, sparsity)
     assert prune_ratio == round(prune_ratio_test.item(), 2)
 
 
 def test_unstructured_random_pruner(mask, prune_ratio):
     # Call the method to be tested
-    sparsity = BasePruner.get_sparsity_from_prune_ratio(mask, prune_ratio)
+    sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
     pruned_mask = UnstructuredRandomPruner.calculate_mask(sparsity, mask)
 
     # Assertions
@@ -86,7 +87,7 @@ def test_unstructured_pruners(mask, prune_ratio, weights):
     weights = torch.where(
         mask == 1, torch.full_like(weights, 100), torch.zeros_like(weights)
     )
-    sparsity = BasePruner.get_sparsity_from_prune_ratio(mask, prune_ratio)
+    sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
     n_drop = BasePruner.calculate_n_drop(mask, sparsity)
     _, idx = torch.topk(weights.view(-1), k=n_drop, largest=True)
     weights = torch.scatter(
