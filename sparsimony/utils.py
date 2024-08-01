@@ -74,21 +74,3 @@ def share_parametrizations(
         primary_para.replicas_.append(replica_para)
     else:
         primary_para.replicas_ = [replica_para]
-
-
-def calculate_n_drop(mask: torch.Tensor, target_sparsity: float) -> int:
-    """Calculates the number of elements to be dropped from a mask
-    tensor given a target sparsity.
-
-    Args:
-        mask (torch.Tensor): Mask to be applied to weight tensor
-        target_sparsity (float): Target sparsity modification to elements.
-            Should be a float between 0 and 1.
-
-    Returns:
-        int: The number of elements to be dropped from a mask
-            tensor given a target sparsity
-    """
-    num_target_elements = (1 - target_sparsity) * mask.sum(dtype=torch.int)
-    n_drop = int(mask.sum(dtype=torch.int) - num_target_elements)
-    return n_drop

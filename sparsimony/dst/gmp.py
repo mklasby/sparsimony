@@ -9,6 +9,7 @@ from sparsimony.parametrization.fake_sparsity import FakeSparsity
 from sparsimony.utils import get_mask
 from sparsimony.dst.base import DSTMixin
 from sparsimony.pruners.unstructured import (
+    BasePruner,
     UnstructuredMagnitudePruner,
 )
 
@@ -87,15 +88,11 @@ class GMP(DSTMixin, BaseSparsifier):
             mask.data = torch.ones_like(mask)
         else:
             weights = getattr(module, tensor_name)
-            prune_ratio = self._get_prune_ratio_from_sparsity(mask, sparsity)
+            prune_ratio = BasePruner.get_prune_ratio_from_sparsity(
+                mask, sparsity
+            )
             self.prune_mask(prune_ratio, mask, weights)
             self._assert_sparsity_level(mask, sparsity)
-
-    def _get_prune_ratio_from_sparsity(
-        self, mask: torch.Tensor, sparsity: float
-    ) -> float:
-        current_sparsity = (mask == 0).sum() / mask.numel()
-        return (sparsity - current_sparsity) / (1 - current_sparsity)
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
         n_ones = mask.sum()
