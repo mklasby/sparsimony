@@ -50,7 +50,7 @@ class DSTMixin(ABC):
 
     @abstractmethod
     def prune_mask(
-        self, prune_ratio: float, mask: torch.Tensor, *args, **kwargs
+        self, target_sparsity: float, mask: torch.Tensor, *args, **kwargs
     ) -> torch.Tensor: ...
 
     @abstractmethod
@@ -175,14 +175,16 @@ class DSTMixin(ABC):
             nnz_el += mask.sum()
         return 1 - (nnz_el / total_el)
 
+    @classmethod
     def get_prune_ratio_from_sparsity(
-        mask: torch.Tensor, sparsity: float
+        cls, mask: torch.Tensor, sparsity: float
     ) -> float:
         current_sparsity = (mask == 0).sum() / mask.numel()
         return (sparsity - current_sparsity) / (1 - current_sparsity)
 
+    @classmethod
     def get_sparsity_from_prune_ratio(
-        mask: torch.Tensor, prune_ratio: float
+        cls, mask: torch.Tensor, prune_ratio: float
     ) -> float:
         current_sparsity = (mask == 0).sum() / mask.numel()
         return (prune_ratio * (1 - current_sparsity)) + current_sparsity

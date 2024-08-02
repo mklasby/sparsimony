@@ -34,12 +34,12 @@ class GMP(DSTMixin, BaseSparsifier):
 
     def prune_mask(
         self,
-        prune_ratio: float,
+        target_sparsity: float,
         mask: torch.Tensor,
         weights: torch.Tensor,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            prune_ratio, mask, weights
+            target_sparsity, mask, weights
         )
         return mask
 
@@ -87,8 +87,7 @@ class GMP(DSTMixin, BaseSparsifier):
             mask.data = torch.ones_like(mask)
         else:
             weights = getattr(module, tensor_name)
-            prune_ratio = super().get_prune_ratio_from_sparsity(mask, sparsity)
-            self.prune_mask(prune_ratio, mask, weights)
+            self.prune_mask(sparsity, mask, weights)
             self._assert_sparsity_level(mask, sparsity)
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
