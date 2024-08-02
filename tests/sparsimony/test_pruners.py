@@ -61,12 +61,6 @@ def weights(mask):
     return torch.rand_like(mask) * mask
 
 
-def test_prune_ratio_sparsity_conversion(mask, prune_ratio):
-    sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
-    prune_ratio_test = DSTMixin.get_prune_ratio_from_sparsity(mask, sparsity)
-    assert prune_ratio == round(prune_ratio_test.item(), 2)
-
-
 def test_unstructured_random_pruner(mask, prune_ratio):
     # Call the method to be tested
     sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)

@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.optim as optim
 
 from sparsimony import rigl
+from sparsimony.dst.base import DSTMixin
 
 
 @pytest.fixture(
@@ -35,13 +36,53 @@ def model(request):
         raise RuntimeError()
 
 
-def id_fn(sparsity):
-    return f"{sparsity}"
-
-
-@pytest.mark.parametrize(
-    "sparsity", [0.0, 0.1, 0.5, 0.75, 0.83, 0.9, 0.99], ids=id_fn
+@pytest.fixture(
+    scope="function",
+    params=[
+        (  # 10x10 mask and initial sparsity of 0%
+            (10, 10),
+            0.0,
+        ),
+        (  # 5x5 mask and initial sparsity of 20%
+            (5, 5),
+            0.2,
+        ),
+        (  # 32x3x3 mask and initial sparsity of 90%
+            (32, 3, 3),
+            0.9,
+        ),
+        (  # 768x3072 mask and initial sparsity of 99%
+            (768, 3072),
+            0.99,
+        ),
+    ],
+    ids=[
+        "10x10_mask_0%_sparse ",
+        "5x5_mask_20%_sparse ",
+        "32x3x3_mask_90%_sparse ",
+        "768x3072_mask_99%_sparse ",
+    ],
 )
+def mask(request):
+    mask_size, init_sparsity = request.param
+    _mask = torch.zeros(size=mask_size, dtype=torch.float)
+    n_ones = int(_mask.numel() * (1 - init_sparsity))
+    scores = torch.rand(size=_mask.shape)
+    _, idx = torch.topk(scores.view(-1), k=n_ones, largest=True)
+    _mask.view(-1)[idx] = 1
+    yield _mask
+    del _mask
+
+
+@pytest.fixture(
+    scope="function",
+    params=[0.0, 0.1, 0.5, 0.75, 0.83, 0.9, 0.99],
+    ids=[f" sparsity:{p}" for p in [0.0, 0.1, 0.5, 0.75, 0.83, 0.9, 0.99]],
+)
+def sparsity(request):
+    return request.param
+
+
 def test_zero_inactive_param_momentum_buffers_sgd(model, sparsity):
     # Create a mock Linear layer and optimizer
     optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.1)
@@ -77,9 +118,6 @@ def test_zero_inactive_param_momentum_buffers_sgd(model, sparsity):
         assert (momentum_buffer[mask == 0] == 0).all()
 
 
-@pytest.mark.parametrize(
-    "sparsity", [0.0, 0.1, 0.5, 0.75, 0.83, 0.9, 0.99], ids=id_fn
-)
 def test_zero_inactive_param_momentum_buffers_adamw(model, sparsity):
     optimizer = optim.AdamW(model.parameters(), lr=0.1)
     sparsifier = rigl(optimizer=optimizer, sparsity=sparsity, t_end=100)
@@ -111,3 +149,18 @@ def test_zero_inactive_param_momentum_buffers_adamw(model, sparsity):
         for state_kw in ["exp_avg"]:
             momentum_buffer = optimizer.state[original_param][state_kw]
             assert (momentum_buffer[mask == 0] == 0).all()
+
+
+def test_prune_ratio_sparsity_conversion(mask, sparsity):
+    current_sparsity = (mask == 0).sum() / mask.numel()
+    expected_prune_ratio = (sparsity - current_sparsity) / (
+        1 - current_sparsity
+    )
+    prune_ratio = DSTMixin.get_prune_ratio_from_sparsity(mask, sparsity)
+    assert expected_prune_ratio == prune_ratio
+    if sparsity > current_sparsity:
+        assert expected_prune_ratio > 0
+    else:
+        assert expected_prune_ratio <= 0
+    sparsity_test = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
+    assert sparsity == round(sparsity_test.item(), 2)
