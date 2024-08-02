@@ -31,7 +31,7 @@ class UnstructuredRandomPruner(BasePruner):
         Returns:
             torch.Tensor: mask with prune_ratio nnz elements set to 0 randomly.
         """
-        n_drop = super().calculate_n_drop(mask, sparsity)
+        n_drop = cls.calculate_n_drop(mask, sparsity)
         scores = torch.where(
             mask == 1,
             torch.abs(torch.rand_like(mask)) + _EPS,
@@ -57,7 +57,7 @@ class UnstructuredMagnitudePruner(BasePruner):
         mask: torch.Tensor,
         weights: torch.Tensor,
     ) -> torch.Tensor:
-        n_drop = super().calculate_n_drop(mask, sparsity)
+        n_drop = cls.calculate_n_drop(mask, sparsity)
         scores = torch.where(
             mask == 1, torch.abs(weights), torch.full_like(weights, np.inf)
         )

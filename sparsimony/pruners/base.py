@@ -10,8 +10,8 @@ class BasePruner(ABC):
         cls, sparsity: float, mask: torch.Tensor, *args, **kwargs
     ) -> torch.Tensor: ...
 
-    @staticmethod
-    def calculate_n_drop(mask: torch.Tensor, sparsity: float) -> int:
+    @classmethod
+    def calculate_n_drop(cls, mask: torch.Tensor, sparsity: float) -> int:
         """Calculates the number of elements to be dropped from a mask
         tensor given a target sparsity.
 
