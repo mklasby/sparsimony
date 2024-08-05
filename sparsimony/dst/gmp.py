@@ -9,7 +9,7 @@ from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsity
 from sparsimony.utils import get_mask
 from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
-from sparsimony.pruners.unstructured import (
+from sparsimony.mask_calculators import (
     UnstructuredMagnitudePruner,
 )
 
