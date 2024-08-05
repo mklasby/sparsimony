@@ -8,7 +8,7 @@ from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsityDenseGradBuffer
 from sparsimony.utils import get_mask, get_parametrization
 from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
-from sparsimony.pruners.unstructured import (
+from sparsimony.mask_calculators import (
     UnstructuredMagnitudePruner,
     UnstructuredGradientGrower,
     UnstructuredRandomPruner,
@@ -49,7 +49,7 @@ class RigL(DSTMixin, BaseSparsifier):
         **kwargs,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            target_sparsity, mask, weights
+            target_sparsity, mask, weights=weights
         )
         return mask
 
@@ -62,7 +62,7 @@ class RigL(DSTMixin, BaseSparsifier):
     ) -> torch.Tensor:
         # Grow new weights
         new_mask = UnstructuredGradientGrower.calculate_mask(
-            sparsity, mask, dense_grads
+            sparsity, mask, grads=dense_grads
         )
         assert new_mask.data_ptr() != mask.data_ptr()
         # Assign newly grown weights to self.grown_weights_init in place

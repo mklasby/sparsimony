@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from sparsimony.pruners.unstructured import (
+from sparsimony.mask_calculators.unstructured import (
     UnstructuredRandomGrower,
     UnstructuredGradientGrower,
 )

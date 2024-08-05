@@ -1,3 +1,6 @@
+from typing import Tuple, Callable, Dict, Any
+import functools
+
 import torch
 import torch.nn as nn
 
@@ -74,3 +77,48 @@ def share_parametrizations(
         primary_para.replicas_.append(replica_para)
     else:
         primary_para.replicas_ = [replica_para]
+
+
+def get_original_tensor_size(*args, **kwargs) -> Tuple[int]:
+    original_sizes = [a.shape for a in args if isinstance(a, torch.Tensor)]
+    original_sizes.extend(
+        [v.shape for _, v in kwargs.items() if isinstance(v, torch.Tensor)]
+    )
+    for sizes in original_sizes:
+        if sizes != original_sizes[0]:
+            raise RuntimeError(
+                "All tensors passed to mask calculators must be of same shape!"
+            )
+    if len(original_sizes) == 0:
+        raise RuntimeError(
+            "No tensors found in args/kwargs passed to mask calculator!"
+        )
+    return original_sizes[0]
+
+
+def transform_args_kwargs_tensors(
+    op: Callable, *args, **kwargs
+) -> Tuple[Tuple[Any], Dict[str, Any]]:
+    args = [op(a) if isinstance(a, torch.Tensor) else a for a in args]
+    kwargs = {
+        k: op(v) if isinstance(v, torch.Tensor) else v
+        for k, v in kwargs.items()
+    }
+    return args, kwargs
+
+
+def view_tensors_as(size: Tuple[int]) -> Callable:
+    if not isinstance(size, Tuple):
+        size = (1, size)
+
+    def wrapper(fn: Callable) -> Callable:
+        @functools.wraps(fn)
+        def wrapped_fn(*args, **kwargs) -> torch.Tensor:
+            original_size = get_original_tensor_size(*args, **kwargs)
+            op = functools.partial(torch.Tensor.view, size=size)
+            args, kwargs = transform_args_kwargs_tensors(op, *args, **kwargs)
+            return fn(*args, **kwargs).reshape(original_size)
+
+        return wrapped_fn
+
+    return wrapper
