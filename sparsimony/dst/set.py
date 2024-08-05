@@ -7,7 +7,7 @@ from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.utils import get_mask, get_original_tensor
 from sparsimony.dst.base import DSTMixin
-from sparsimony.pruners.unstructured import (
+from sparsimony.mask_calculators import (
     UnstructuredMagnitudePruner,
     UnstructuredRandomGrower,
 )
