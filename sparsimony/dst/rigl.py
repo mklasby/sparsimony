@@ -148,7 +148,9 @@ class RigL(DSTMixin, BaseSparsifier):
                 module.parametrizations, tensor_name
             ).original
             weights = getattr(module, tensor_name)
-            target_sparsity = self.get_sparsity_from_prune_ratio(prune_ratio)
+            target_sparsity = self.get_sparsity_from_prune_ratio(
+                mask, prune_ratio
+            )
             self.prune_mask(target_sparsity, mask, weights)
             self.grow_mask(sparsity, mask, original_weights, dense_grads)
             self._assert_sparsity_level(mask, sparsity)
