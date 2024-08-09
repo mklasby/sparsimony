@@ -1,5 +1,6 @@
 from typing import Tuple, Callable, Dict, Any
 import functools
+from math import prod
 
 import torch
 import torch.nn as nn
@@ -122,3 +123,36 @@ def view_tensors_as(size: Tuple[int]) -> Callable:
         return wrapped_fn
 
     return wrapper
+
+
+def view_tensors_as_neurons(fn: Callable) -> Callable:
+    @functools.wraps(fn)
+    def wrapped_fn(*args, **kwargs) -> torch.Tensor:
+        original_size = get_original_tensor_size(*args, **kwargs)
+        if len(original_size) == 2:
+            # linear and friends
+            op = functools.partial(
+                torch.Tensor.view,
+                size=(
+                    -1,
+                    original_size[-1],
+                ),
+            )
+        elif len(original_size) == 4:
+            # conv
+            op = functools.partial(
+                torch.Tensor.view,
+                size=(
+                    -1,
+                    prod(original_size[1:]),
+                ),
+            )
+        else:
+            raise NotImplementedError(
+                "Sparsimony currently only support parameterized tensors of dim"
+                " 2 or 4"
+            )
+        args, kwargs = transform_args_kwargs_tensors(op, *args, **kwargs)
+        return fn(*args, **kwargs).reshape(original_size)
+
+    return wrapped_fn
