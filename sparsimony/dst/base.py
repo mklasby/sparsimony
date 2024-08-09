@@ -137,7 +137,7 @@ class DSTMixin(ABC):
                 assert unequal_elements[mask == 1].all()
                 assert not unequal_elements[mask == 0].any()
             except AssertionError:
-                self._logger.warning(
+                self._logger.debug(
                     "Assertion checks failed on newly initialized values!\n"
                     f"Found {(unequal_elements[mask == 1]==False).sum().item()}"
                     " values that had the same value after reinit and "
@@ -202,7 +202,10 @@ class DSTMixin(ABC):
             # With very large mask tensors, we may have some precision errors
             # with exact n_ones. Therefore, we simply log the warning instead of
             # raising.
-            self._logger.warning(
+            # Also naturally occurs in structured pruning
+            # TODO: For structured pruning we may wish to calculate
+            # actual_n_ones based on network topology
+            self._logger.debug(
                 f"n_ones actual {n_ones} != n_one target {actual_n_ones}"
             )
 

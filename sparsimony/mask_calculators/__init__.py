@@ -4,3 +4,9 @@ from .unstructured import (
     UnstructuredRandomGrower,
     UnstructuredRandomPruner,
 )
+from .neuron import (
+    NeuronGradientGrower,
+    NeuronMagnitudePruner,
+    NeuronRandomGrower,
+    NeuronRandomPruner,
+)
