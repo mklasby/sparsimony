@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Optional, Dict, Any
 
 import torch
 import torch.nn as nn
@@ -7,8 +7,8 @@ from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsity
-from sparsimony.utils import get_mask, get_parametrization, get_original_tensor
-from sparsimony.dst.base import DSTMixin
+from sparsimony.utils import get_mask
+from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
 from sparsimony.pruners.unstructured import (
     UnstructuredMagnitudePruner,
 )
@@ -112,21 +112,11 @@ class GMP(DSTMixin, BaseSparsifier):
             )
 
     def _global_step(self) -> None:
-        original_weights = []
-        masks = []
-        sparse_weights = []
-        for config in self.groups:
-            module = config["module"]
-            tensor_name = config["tensor_name"]
-            masks.append(get_mask(module, tensor_name))
-            original_weights.append(get_original_tensor(module, tensor_name))
-            sparse_weights.append(getattr(module, tensor_name))
-        original_shapes = [t.shape for t in masks]
-        original_numels = [t.numel() for t in masks]
-        original_weights = torch.concat(original_weights).flatten()
-        masks = torch.concat(masks).flatten()
-        sparse_weights = torch.concat(sparse_weights).flatten()
-        dense_grads = torch.concat(dense_grads).flatten()
-        self.prune_mask(self.sparsity, masks, sparse_weights)
-        self._assert_sparsity_level(masks, self.sparsity)
-        self._global_reshape_and_assign(masks, original_shapes, original_numels)
+        global_data_helper = GlobalPruningDataHelper(self.groups)
+        self.prune_mask(
+            self.sparsity,
+            global_data_helper.masks,
+            global_data_helper.sparse_weights,
+        )
+        self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
+        global_data_helper.reshape_and_assign_masks()
