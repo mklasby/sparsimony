@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List
 import copy
 import logging
 import torch
@@ -26,7 +26,7 @@ class DSTMixin(ABC):
         self,
         optimizer: torch.optim.Optimizer,
         random_mask_init: bool = True,
-        global_pruining: bool = False,
+        global_pruning: bool = False,
         *args,
         **kwargs,
     ):
@@ -45,7 +45,7 @@ class DSTMixin(ABC):
             )
         self.optimizer = optimizer
         self.random_mask_init = random_mask_init
-        self.global_pruning = global_pruining
+        self.global_pruning = global_pruning
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
         self.prepared_ = False
@@ -202,7 +202,7 @@ class DSTMixin(ABC):
             # with exact n_ones. Therefore, we simply log the warning instead of
             # raising.
             self._logger.warning(
-                f"n_ones actual{n_ones} != n_one target {actual_n_ones}"
+                f"n_ones actual {n_ones} != n_one target {actual_n_ones}"
             )
 
     # @override
@@ -296,51 +296,66 @@ class DSTMixin(ABC):
             return True
         return False
 
-    # TODO: Move following to mixin interface for global pruning?
-    def _global_reshape_and_assign(
-        self,
-        concantenated_mask: torch.Tensor,
-        original_shapes: List[Tuple[int]],
-        original_numels: List[int],
-    ) -> None:
-        for idx, config in enumerate(self.groups):
-            module = config["module"]
-            tensor_name = config["tensor_name"]
-            mask = get_mask(module, tensor_name)
-            stride_start = sum(original_numels[:idx])
-            stride_end = sum(original_numels[: idx + 1])
-            shape = original_shapes[idx]
-            mask.data = concantenated_mask[stride_start:stride_end].reshape(
-                shape
-            )
-
-    def _global_init_prune(self) -> None:
-        original_weights = []
-        masks = []
-        sparse_weights = []
-        for config in self.groups:
-            module = config["module"]
-            tensor_name = config["tensor_name"]
-            masks.append(get_mask(module, tensor_name))
-            original_weights.append(get_original_tensor(module, tensor_name))
-            sparse_weights.append(getattr(module, tensor_name))
-        original_shapes = [t.shape for t in masks]
-        original_numels = [t.numel() for t in masks]
-        original_weights = torch.concat(original_weights).flatten()
-        masks = torch.concat(masks).flatten()
-        sparse_weights = torch.concat(sparse_weights).flatten()
-        if self.random_mask_init:
-            masks.data = UnstructuredRandomPruner.calculate_mask(
-                self.sparsity, masks
-            )
-        else:
-            # use pruning criterion
-            self.prune_mask(self.sparsity, masks, sparse_weights)
-        self._assert_sparsity_level(masks, self.sparsity)
-        self._global_reshape_and_assign(masks, original_shapes, original_numels)
-
+    # TODO: Move to global pruner Mixin?
     def _global_step(self, *args, **kwargs) -> None:
         raise NotImplementedError(
             "self.global_prune is True but _global_step has not been "
             f"implemented for {self.__class__.__name__}."
         )
+
+    def _global_init_prune(self) -> None:
+        global_data_helper = GlobalPruningDataHelper(self.groups)
+        if self.random_mask_init:
+            global_data_helper.masks.data = (
+                UnstructuredRandomPruner.calculate_mask(
+                    self.sparsity, global_data_helper.masks
+                )
+            )
+        else:
+            # use pruning criterion
+            self.prune_mask(
+                self.sparsity,
+                global_data_helper.masks,
+                global_data_helper.sparse_weights,
+            )
+        self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
+        global_data_helper.reshape_and_assign_masks()
+
+
+class GlobalPruningDataHelper:
+
+    def __init__(self, groups: List[Dict[str, Any]]):
+        self.groups = groups
+        original_weights = []
+        sparse_weights = []
+        original_shapes = []
+        original_numels = []
+        masks = []
+        for config in self.groups:
+            module = config["module"]
+            tensor_name = config["tensor_name"]
+            mask = get_mask(module, tensor_name)
+            original_shapes.append(mask.shape)
+            original_numels.append(mask.numel())
+            masks.append(mask.flatten())
+            original_weights.append(
+                get_original_tensor(module, tensor_name).flatten()
+            )
+            sparse_weights.append(getattr(module, tensor_name).flatten())
+        self.original_weights = torch.concat(original_weights)
+        self.sparse_weights = torch.concat(sparse_weights)
+        self.masks = torch.concat(masks)
+        self.original_shapes = original_shapes
+        self.original_numels = original_numels
+
+    def reshape_and_assign_masks(
+        self,
+    ) -> None:
+        for idx, config in enumerate(self.groups):
+            module = config["module"]
+            tensor_name = config["tensor_name"]
+            mask = get_mask(module, tensor_name)
+            stride_start = sum(self.original_numels[:idx])
+            stride_end = sum(self.original_numels[: idx + 1])
+            shape = self.original_shapes[idx]
+            mask.data = self.masks[stride_start:stride_end].reshape(shape)
