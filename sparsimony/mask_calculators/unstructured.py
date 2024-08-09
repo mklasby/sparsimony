@@ -5,11 +5,13 @@ from sparsimony.mask_calculators.base import (
     RandomPruner,
     MagnitudePruner,
     GradientGrower,
+    FineGrainedPruner,
+    FineGrainedGrower,
 )
 from sparsimony.utils import view_tensors_as
 
 
-class UnstructuredRandomPruner(RandomPruner):
+class UnstructuredRandomPruner(FineGrainedPruner, RandomPruner):
 
     @classmethod
     @view_tensors_as((1, -1))
@@ -26,7 +28,7 @@ class UnstructuredRandomPruner(RandomPruner):
         )
 
 
-class UnstructuredMagnitudePruner(MagnitudePruner):
+class UnstructuredMagnitudePruner(FineGrainedPruner, MagnitudePruner):
 
     @classmethod
     @view_tensors_as((1, -1))
@@ -43,7 +45,7 @@ class UnstructuredMagnitudePruner(MagnitudePruner):
         )
 
 
-class UnstructuredRandomGrower(RandomGrower):
+class UnstructuredRandomGrower(FineGrainedGrower, RandomGrower):
 
     @classmethod
     @view_tensors_as((1, -1))
@@ -60,7 +62,7 @@ class UnstructuredRandomGrower(RandomGrower):
         )
 
 
-class UnstructuredGradientGrower(GradientGrower):
+class UnstructuredGradientGrower(FineGrainedGrower, GradientGrower):
 
     @classmethod
     @view_tensors_as((1, -1))
