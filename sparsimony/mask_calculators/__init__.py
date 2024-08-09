@@ -10,3 +10,9 @@ from .neuron import (
     NeuronRandomGrower,
     NeuronRandomPruner,
 )
+from .fine_grained import (
+    FFIGradientGrower,
+    FFIMagnitudePruner,
+    FFIRandomGrower,
+    FFIRandomPruner,
+)

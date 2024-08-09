@@ -5,14 +5,16 @@ from sparsimony.mask_calculators.base import (
     RandomPruner,
     MagnitudePruner,
     GradientGrower,
+    FineGrainedPruner,
+    FineGrainedGrower,
 )
-from sparsimony.utils import view_tensors_as
+from sparsimony.utils import view_tensors_as_neurons
 
 
-class UnstructuredRandomPruner(RandomPruner):
+class FFIRandomPruner(FineGrainedPruner, RandomPruner):
 
-    @view_tensors_as((1, -1))
     @classmethod
+    @view_tensors_as_neurons
     def calculate_mask(
         cls,
         sparsity: float,
@@ -26,10 +28,10 @@ class UnstructuredRandomPruner(RandomPruner):
         )
 
 
-class UnstructuredMagnitudePruner(MagnitudePruner):
+class FFIMagnitudePruner(FineGrainedPruner, MagnitudePruner):
 
-    @view_tensors_as((1, -1))
     @classmethod
+    @view_tensors_as_neurons
     def calculate_mask(
         cls,
         sparsity: float,
@@ -43,10 +45,10 @@ class UnstructuredMagnitudePruner(MagnitudePruner):
         )
 
 
-class UnstructuredRandomGrower(RandomGrower):
+class FFIRandomGrower(FineGrainedGrower, RandomGrower):
 
-    @view_tensors_as((1, -1))
     @classmethod
+    @view_tensors_as_neurons
     def calculate_mask(
         cls,
         sparsity: float,
@@ -60,10 +62,10 @@ class UnstructuredRandomGrower(RandomGrower):
         )
 
 
-class UnstructuredGradientGrower(GradientGrower):
+class FFIGradientGrower(FineGrainedGrower, GradientGrower):
 
-    @view_tensors_as((1, -1))
     @classmethod
+    @view_tensors_as_neurons
     def calculate_mask(
         cls,
         sparsity: float,

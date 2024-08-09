@@ -42,14 +42,14 @@ class RigL(DSTMixin, BaseSparsifier):
 
     def prune_mask(
         self,
-        target_sparsity: float,
+        sparsity: float,
         mask: torch.Tensor,
         weights: torch.Tensor,
         *args,
         **kwargs,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            target_sparsity, mask, weights=weights
+            sparsity, mask, weights=weights
         )
         return mask
 

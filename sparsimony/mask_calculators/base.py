@@ -6,6 +6,8 @@ import logging
 import torch
 import torch.distributed as dist
 
+from sparsimony.utils import calculate_per_tile_n_ones
+
 
 class BaseMaskCalculator(ABC):
     _OVERRIDE_SENTINEL_VALUE: float = float("-inf")
@@ -69,6 +71,38 @@ class BasePruner(BaseMaskCalculator):
     ): ...
 
 
+# class FineGrainedPruner(BasePruner):
+#     @classmethod
+#     def calculate_mask(
+#         cls,
+#         sparsity: float,
+#         mask: torch.Tensor,
+#         score_override: torch.Tensor | None = None,
+#         *args,
+#         **kwargs,
+#     ):
+#         n_drop = cls.calculate_n_drop(mask, sparsity)
+#         candidate_tiles = cls._get_candidate_tiles(
+#             mask,
+#             score_override,
+#         )
+#         n_drop_per_tile = int(n_drop // len(candidate_tiles))
+#         mask_slice = mask[candidate_tiles]
+#         scores = cls.get_scores(
+#             mask_slice, candidate_tiles, *args, **kwargs
+#         )  # Logic defined by child
+#         if dist.is_initialized():
+#             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
+#         _, indices = torch.topk(scores, k=n_drop_per_tile, largest=False)
+#         mask_slice = mask_slice.scatter(
+#             dim=-1,
+#             index=indices,
+#             src=torch.zeros_like(mask_slice),
+#         )
+#         mask[candidate_tiles] = mask_slice
+#         return mask
+
+
 class FineGrainedPruner(BasePruner):
     @classmethod
     def calculate_mask(
@@ -84,19 +118,45 @@ class FineGrainedPruner(BasePruner):
             mask,
             score_override,
         )
-        n_drop_per_tile = int(n_drop // len(candidate_tiles))
         mask_slice = mask[candidate_tiles]
+        mask_slice = mask[candidate_tiles]
+        n_ones_per_tile_target = calculate_per_tile_n_ones(mask_slice, sparsity)
+        n_drop_per_tile = torch.tensor(
+            [n.sum().item() - n_ones_per_tile_target for n in mask_slice],
+            dtype=torch.int,
+        )
+        assert (n_drop_per_tile >= 0).all()
+        assert n_drop_per_tile.sum() >= n_drop
         scores = cls.get_scores(
             mask_slice, candidate_tiles, *args, **kwargs
         )  # Logic defined by child
         if dist.is_initialized():
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
-        _, indices = torch.topk(scores, k=n_drop_per_tile, largest=False)
-        mask_slice = mask_slice.scatter(
-            dim=-1,
-            index=indices,
-            src=torch.zeros_like(mask_slice),
-        )
+
+        # TODO: Conditional flow on len(n_drop_per_tile.unique() == 1) to
+        # unifiy with above class
+        if len(n_drop_per_tile.unique()) == 1:
+            _, indices = torch.topk(
+                scores, k=n_drop_per_tile.unique().item(), largest=False
+            )
+            mask_slice = mask_slice.scatter(
+                dim=-1,
+                index=indices,
+                src=torch.zeros_like(mask_slice),
+            )
+        else:  # per tile dropping
+            # TODO: Vmap me
+            for n_idx, (score, n_drop_this_tile) in enumerate(
+                list(zip(scores, n_drop_per_tile.tolist()))
+            ):
+                _, indices = torch.topk(
+                    score, k=n_drop_this_tile, largest=False
+                )
+                mask_slice[n_idx] = mask_slice[n_idx].scatter(
+                    dim=-1,
+                    index=indices,
+                    src=torch.zeros_like(mask_slice[n_idx]),
+                )
         mask[candidate_tiles] = mask_slice
         return mask
 
@@ -164,6 +224,36 @@ class BaseGrower(BaseMaskCalculator):
     ): ...
 
 
+# class FineGrainedGrower(BaseGrower):
+
+#     @classmethod
+#     def calculate_mask(
+#         cls,
+#         sparsity: float,
+#         mask: torch.Tensor,
+#         score_override: torch.Tensor | None = None,
+#         *args,
+#         **kwargs,
+#     ) -> torch.Tensor:
+#         n_grow = cls.get_n_grow(mask, sparsity)
+#         candidate_tiles = cls._get_candidate_tiles(mask, score_override)
+#         n_grow_per_tile = int(n_grow // len(candidate_tiles))
+#         mask_slice = mask[candidate_tiles]
+#         scores = cls.get_scores(
+#             mask_slice, candidate_tiles, *args, **kwargs
+#         )  # Logic defined by child
+#         if dist.is_initialized():
+#             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
+#         _, indices = torch.topk(scores, k=n_grow_per_tile, largest=True)
+#         mask_slice = mask_slice.scatter(
+#             dim=-1,
+#             index=indices,
+#             src=torch.ones_like(mask_slice),
+#         )
+#         mask[candidate_tiles] = mask_slice
+#         return mask
+
+
 class FineGrainedGrower(BaseGrower):
 
     @classmethod
@@ -177,19 +267,39 @@ class FineGrainedGrower(BaseGrower):
     ) -> torch.Tensor:
         n_grow = cls.get_n_grow(mask, sparsity)
         candidate_tiles = cls._get_candidate_tiles(mask, score_override)
-        n_grow_per_tile = int(n_grow // len(candidate_tiles))
         mask_slice = mask[candidate_tiles]
+        n_ones_per_tile_target = calculate_per_tile_n_ones(mask_slice, sparsity)
+        n_grow_per_tile = torch.tensor(
+            [n_ones_per_tile_target - n.sum().item() for n in mask_slice],
+            dtype=torch.int,
+        )
+        assert (n_grow_per_tile >= 0).all()
+        assert n_grow_per_tile.sum() <= n_grow
         scores = cls.get_scores(
             mask_slice, candidate_tiles, *args, **kwargs
         )  # Logic defined by child
         if dist.is_initialized():
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
-        _, indices = torch.topk(scores, k=n_grow_per_tile, largest=True)
-        mask_slice = mask_slice.scatter(
-            dim=-1,
-            index=indices,
-            src=torch.ones_like(mask_slice),
-        )
+        if len(n_grow_per_tile.unique()) == 1:
+            _, indices = torch.topk(
+                scores, k=n_grow_per_tile.unique().item(), largest=True
+            )
+            mask_slice = mask_slice.scatter(
+                dim=-1,
+                index=indices,
+                src=torch.ones_like(mask_slice),
+            )
+        else:  # per tile growth
+            # TODO: Vmap me
+            for n_idx, (score, n_grow_this_tile) in enumerate(
+                list(zip(scores, n_grow_per_tile.tolist()))
+            ):
+                _, indices = torch.topk(score, k=n_grow_this_tile, largest=True)
+                mask_slice[n_idx] = mask_slice[n_idx].scatter(
+                    dim=-1,
+                    index=indices,
+                    src=torch.ones_like(mask_slice[n_idx]),
+                )
         mask[candidate_tiles] = mask_slice
         return mask
 
