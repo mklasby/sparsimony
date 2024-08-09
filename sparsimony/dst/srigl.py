@@ -1,4 +1,6 @@
 from typing import Optional, Dict, Any
+from math import prod
+
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
@@ -183,3 +185,13 @@ class SRigL(DSTMixin, BaseSparsifier):
                 "FFI error: Multiple non-zero FFI values detected: "
                 f"{ffi.unique()}"
             )
+
+    def __str__(self) -> str:
+        ffi = []
+        for config in self.groups:
+            mask = get_mask(**config)
+            mask_flat = mask.view(mask.shape[0], prod(mask.shape[1:]))
+            ffi.append(mask_flat.sum(dim=1, dtype=torch.int).unique().item())
+        s = super().__str__()
+        s += f"FFI: {ffi}\n"
+        return s
