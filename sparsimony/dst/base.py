@@ -292,7 +292,7 @@ class DSTMixin(ABC):
             f"Global Sparsity Actual: {global_sparsity}\n"
             f"Layerwise Sparsity Targets: {layerwise_sparsity_target}\n"
             f"Layerwise Sparsity Actual: {layerwise_sparsity_actual}\n"
-            f"Active/Total Neurons: {active_vs_total_neurons}"
+            f"Active/Total Neurons: {active_vs_total_neurons}\n"
         )
 
     def __repr__(self) -> str:
