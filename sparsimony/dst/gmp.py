@@ -39,12 +39,12 @@ class GMP(DSTMixin, BaseSparsifier):
 
     def prune_mask(
         self,
-        target_sparsity: float,
+        sparsity: float,
         mask: torch.Tensor,
         weights: torch.Tensor,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            target_sparsity, mask, weights
+            sparsity, mask, weights
         )
         return mask
 

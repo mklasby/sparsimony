@@ -156,3 +156,9 @@ def view_tensors_as_neurons(fn: Callable) -> Callable:
         return fn(*args, **kwargs).reshape(original_size)
 
     return wrapped_fn
+
+
+def calculate_per_tile_n_ones(mask: torch.Tensor, sparsity: float):
+    n_ones = int(mask.numel() * (1 - sparsity))
+    n_ones_per_tile = n_ones // mask.shape[0]
+    return n_ones_per_tile
