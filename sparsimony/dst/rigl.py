@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
@@ -6,7 +6,7 @@ from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsityDenseGradBuffer
-from sparsimony.utils import get_mask, get_parametrization
+from sparsimony.utils import get_mask, get_parametrization, get_original_tensor
 from sparsimony.dst.base import DSTMixin
 from sparsimony.pruners.unstructured import (
     UnstructuredMagnitudePruner,
@@ -83,19 +83,16 @@ class RigL(DSTMixin, BaseSparsifier):
         prune_ratio = self.scheduler(self._step_count)
         if prune_ratio is not None:
             self._logger.info(f"Updating topology at step {self._step_count}")
-            self._distribute_sparsity(self.sparsity)
-            for config in self.groups:
-                parametrization = get_parametrization(
-                    config["module"], config["tensor_name"]
-                )
-                if (
-                    hasattr(parametrization, "is_replica_")
-                    and parametrization.is_replica_
-                ):
-                    continue
-                config["prune_ratio"] = prune_ratio
-                config["dense_grads"] = self._get_dense_grads(**config)
-                self.update_mask(**config)
+            if self.global_pruning:
+                return self._global_step(prune_ratio)
+            else:
+                self._distribute_sparsity(self.sparsity)
+                for config in self.groups:
+                    if self._is_replica(**config):
+                        continue
+                    config["prune_ratio"] = prune_ratio
+                    config["dense_grads"] = self._get_dense_grads(**config)
+                    self.update_mask(**config)
             self._broadcast_masks()
             _topo_updated = True
         if self.scheduler.next_step_update(self._step_count):
@@ -118,6 +115,10 @@ class RigL(DSTMixin, BaseSparsifier):
 
     def _initialize_masks(self) -> None:
         self._distribute_sparsity(self.sparsity)
+        # use pruning criterion
+        if self.global_pruning:
+            self._global_init_prune()
+            return
         for config in self.groups:
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
@@ -154,3 +155,27 @@ class RigL(DSTMixin, BaseSparsifier):
             self.prune_mask(target_sparsity, mask, weights)
             self.grow_mask(sparsity, mask, original_weights, dense_grads)
             self._assert_sparsity_level(mask, sparsity)
+
+    def _global_step(self, prune_ratio: float) -> None:
+        original_weights = []
+        masks = []
+        sparse_weights = []
+        dense_grads = []
+        for config in self.groups:
+            module = config["module"]
+            tensor_name = config["tensor_name"]
+            masks.append(get_mask(module, tensor_name))
+            original_weights.append(get_original_tensor(module, tensor_name))
+            sparse_weights.append(getattr(module, tensor_name))
+            dense_grads.append(self._get_dense_grads(**config))
+        original_shapes = [t.shape for t in masks]
+        original_numels = [t.numel() for t in masks]
+        original_weights = torch.concat(original_weights).flatten()
+        masks = torch.concat(masks).flatten()
+        sparse_weights = torch.concat(sparse_weights).flatten()
+        dense_grads = torch.concat(dense_grads).flatten()
+        target_sparsity = self.get_sparsity_from_prune_ratio(masks, prune_ratio)
+        self.prune_mask(target_sparsity, masks, sparse_weights)
+        self.grow_mask(self.sparsity, masks, original_weights, dense_grads)
+        self._assert_sparsity_level(masks, self.sparsity)
+        self._global_reshape_and_assign(masks, original_shapes, original_numels)

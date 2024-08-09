@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Tuple
 import copy
 import logging
 import torch
@@ -7,8 +7,9 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.ao.pruning.sparsifier.utils import get_arg_info_from_tensor_fqn
 
-from sparsimony.utils import get_mask, get_original_tensor
+from sparsimony.utils import get_mask, get_original_tensor, get_parametrization
 from sparsimony.nn_init import sparse_init
+from sparsimony.pruners.unstructured import UnstructuredRandomPruner
 
 _KEYS_NOT_IN_STATE_DICT = ["module", "module_fqn", "tensor_name"]
 
@@ -25,6 +26,7 @@ class DSTMixin(ABC):
         self,
         optimizer: torch.optim.Optimizer,
         random_mask_init: bool = True,
+        global_pruining: bool = False,
         *args,
         **kwargs,
     ):
@@ -43,6 +45,7 @@ class DSTMixin(ABC):
             )
         self.optimizer = optimizer
         self.random_mask_init = random_mask_init
+        self.global_pruning = global_pruining
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
         self.prepared_ = False
@@ -281,3 +284,63 @@ class DSTMixin(ABC):
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def _is_replica(
+        self, module: nn.Module, tensor_name: str, *args, **kwargs
+    ) -> bool:
+        parametrization = get_parametrization(module, tensor_name)
+        if (
+            hasattr(parametrization, "is_replica_")
+            and parametrization.is_replica_
+        ):
+            return True
+        return False
+
+    # TODO: Move following to mixin interface for global pruning?
+    def _global_reshape_and_assign(
+        self,
+        concantenated_mask: torch.Tensor,
+        original_shapes: List[Tuple[int]],
+        original_numels: List[int],
+    ) -> None:
+        for idx, config in enumerate(self.groups):
+            module = config["module"]
+            tensor_name = config["tensor_name"]
+            mask = get_mask(module, tensor_name)
+            stride_start = sum(original_numels[:idx])
+            stride_end = sum(original_numels[: idx + 1])
+            shape = original_shapes[idx]
+            mask.data = concantenated_mask[stride_start:stride_end].reshape(
+                shape
+            )
+
+    def _global_init_prune(self) -> None:
+        original_weights = []
+        masks = []
+        sparse_weights = []
+        for config in self.groups:
+            module = config["module"]
+            tensor_name = config["tensor_name"]
+            masks.append(get_mask(module, tensor_name))
+            original_weights.append(get_original_tensor(module, tensor_name))
+            sparse_weights.append(getattr(module, tensor_name))
+        original_shapes = [t.shape for t in masks]
+        original_numels = [t.numel() for t in masks]
+        original_weights = torch.concat(original_weights).flatten()
+        masks = torch.concat(masks).flatten()
+        sparse_weights = torch.concat(sparse_weights).flatten()
+        if self.random_mask_init:
+            masks.data = UnstructuredRandomPruner.calculate_mask(
+                self.sparsity, masks
+            )
+        else:
+            # use pruning criterion
+            self.prune_mask(self.sparsity, masks, sparse_weights)
+        self._assert_sparsity_level(masks, self.sparsity)
+        self._global_reshape_and_assign(masks, original_shapes, original_numels)
+
+    def _global_step(self, *args, **kwargs) -> None:
+        raise NotImplementedError(
+            "self.global_prune is True but _global_step has not been "
+            f"implemented for {self.__class__.__name__}."
+        )
