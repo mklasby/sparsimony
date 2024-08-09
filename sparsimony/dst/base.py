@@ -54,7 +54,7 @@ class DSTMixin(ABC):
 
     @abstractmethod
     def prune_mask(
-        self, target_sparsity: float, mask: torch.Tensor, *args, **kwargs
+        self, sparsity: float, mask: torch.Tensor, *args, **kwargs
     ) -> torch.Tensor: ...
 
     @abstractmethod
