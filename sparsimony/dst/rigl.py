@@ -61,13 +61,13 @@ class RigL(DSTMixin, BaseSparsifier):
         dense_grads: torch.Tensor,
     ) -> torch.Tensor:
         # Grow new weights
+        old_mask = torch.clone(mask)
         new_mask = UnstructuredGradientGrower.calculate_mask(
             sparsity, mask, grads=dense_grads
         )
-        assert new_mask.data_ptr() != mask.data_ptr()
         # Assign newly grown weights to self.grown_weights_init in place
         original_weights.data = torch.where(
-            new_mask != mask,
+            new_mask != old_mask,
             torch.full_like(
                 original_weights, fill_value=self.grown_weights_init
             ),

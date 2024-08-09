@@ -62,15 +62,15 @@ class SET(DSTMixin, BaseSparsifier):
         mask: torch.Tensor,
         original_weights: torch.Tensor,
     ):
+        old_mask = torch.clone(mask)
         # Grow new weights
         new_mask = UnstructuredRandomGrower.calculate_mask(
             sparsity,
             mask,
         )
-        assert new_mask.data_ptr() != mask.data_ptr()
         # Assign newly grown weights to self.grown_weights_init
         torch.where(
-            new_mask != mask,
+            new_mask != old_mask,
             torch.full_like(
                 original_weights, fill_value=self.grown_weights_init
             ),
