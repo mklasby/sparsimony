@@ -191,7 +191,10 @@ class SRigL(DSTMixin, BaseSparsifier):
         for config in self.groups:
             mask = get_mask(**config)
             mask_flat = mask.view(mask.shape[0], prod(mask.shape[1:]))
-            ffi.append(mask_flat.sum(dim=1, dtype=torch.int).unique().item())
+            this_ffi = mask_flat.sum(dim=1, dtype=torch.int).unique()
+            if len(this_ffi) > 1:
+                this_ffi = this_ffi[this_ffi != 0]
+            ffi.append(this_ffi.item())
         s = super().__str__()
         s += f"FFI: {ffi}\n"
         return s
