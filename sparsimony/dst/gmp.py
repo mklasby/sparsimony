@@ -64,7 +64,7 @@ class GMP(DSTMixin, BaseSparsifier):
                 f"{self._step_count}"
             )
             if self.global_pruning:
-                return self._global_step()
+                self._global_step()
             else:
                 self._distribute_sparsity(sparsity)
                 for config in self.groups:

@@ -84,7 +84,7 @@ class RigL(DSTMixin, BaseSparsifier):
         if prune_ratio is not None:
             self._logger.info(f"Updating topology at step {self._step_count}")
             if self.global_pruning:
-                return self._global_step(prune_ratio)
+                self._global_step(prune_ratio)
             else:
                 self._distribute_sparsity(self.sparsity)
                 for config in self.groups:
