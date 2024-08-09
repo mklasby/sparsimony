@@ -29,6 +29,9 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
 
     def _initialize_masks(self):
         self._distribute_sparsity(self.sparsity)
+        if self.global_pruning:
+            self._global_init_prune()
+            return
         for config in self.groups:
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
