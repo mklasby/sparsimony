@@ -10,7 +10,7 @@ from torch.ao.pruning.sparsifier.utils import get_arg_info_from_tensor_fqn
 
 from sparsimony.utils import get_mask, get_original_tensor, get_parametrization
 from sparsimony.nn_init import sparse_init
-from sparsimony.pruners.unstructured import UnstructuredRandomPruner
+from sparsimony.mask_calculators import UnstructuredRandomPruner
 
 _KEYS_NOT_IN_STATE_DICT = ["module", "module_fqn", "tensor_name"]
 
