@@ -163,4 +163,4 @@ def test_prune_ratio_sparsity_conversion(mask, sparsity):
     else:
         assert expected_prune_ratio <= 0
     sparsity_test = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
-    assert sparsity == round(sparsity_test.item(), 2)
+    assert sparsity == round(sparsity_test, 2)
