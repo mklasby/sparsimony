@@ -1,4 +1,5 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List, Tuple
+
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
@@ -6,7 +7,7 @@ from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsity
-from sparsimony.utils import get_mask
+from sparsimony.utils import get_mask, get_parametrization, get_original_tensor
 from sparsimony.dst.base import DSTMixin
 from sparsimony.pruners.unstructured import (
     UnstructuredMagnitudePruner,
@@ -24,13 +25,17 @@ class GMP(DSTMixin, BaseSparsifier):
         distribution: BaseDistribution,
         optimizer: torch.optim.Optimizer,
         defaults: Optional[Dict[str, Any]] = None,
+        *args,
+        **kwargs,
     ):
         self.scheduler = scheduler
         self.distribution = distribution
         self.sparsity = self.scheduler.initial_sparsity
         if defaults is None:
             defaults = dict(parametrization=FakeSparsity)
-        super().__init__(optimizer=optimizer, defaults=defaults)
+        super().__init__(
+            optimizer=optimizer, defaults=defaults, *args, **kwargs
+        )
 
     def prune_mask(
         self,
@@ -58,9 +63,14 @@ class GMP(DSTMixin, BaseSparsifier):
                 f"Pruning to {self.sparsity*100:.2f}% sparsity at step "
                 f"{self._step_count}"
             )
-            self._distribute_sparsity(sparsity)
-            for config in self.groups:
-                self.update_mask(**config)
+            if self.global_pruning:
+                return self._global_step()
+            else:
+                self._distribute_sparsity(sparsity)
+                for config in self.groups:
+                    if self._is_replica(**config):
+                        continue
+                    self.update_mask(**config)
             self._broadcast_masks()
             _topo_updated = True
         return _topo_updated
@@ -100,3 +110,23 @@ class GMP(DSTMixin, BaseSparsifier):
             self._logger.warning(
                 f"n_ones actual{n_ones} != n_one target {actual_n_ones}"
             )
+
+    def _global_step(self) -> None:
+        original_weights = []
+        masks = []
+        sparse_weights = []
+        for config in self.groups:
+            module = config["module"]
+            tensor_name = config["tensor_name"]
+            masks.append(get_mask(module, tensor_name))
+            original_weights.append(get_original_tensor(module, tensor_name))
+            sparse_weights.append(getattr(module, tensor_name))
+        original_shapes = [t.shape for t in masks]
+        original_numels = [t.numel() for t in masks]
+        original_weights = torch.concat(original_weights).flatten()
+        masks = torch.concat(masks).flatten()
+        sparse_weights = torch.concat(sparse_weights).flatten()
+        dense_grads = torch.concat(dense_grads).flatten()
+        self.prune_mask(self.sparsity, masks, sparse_weights)
+        self._assert_sparsity_level(masks, self.sparsity)
+        self._global_reshape_and_assign(masks, original_shapes, original_numels)
