@@ -7,7 +7,7 @@ from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.utils import get_mask, get_original_tensor
 from sparsimony.dst.base import DSTMixin
-from sparsimony.pruners.unstructured import (
+from sparsimony.mask_calculators import (
     UnstructuredMagnitudePruner,
     UnstructuredRandomGrower,
 )
@@ -45,14 +45,14 @@ class SET(DSTMixin, BaseSparsifier):
 
     def prune_mask(
         self,
-        target_sparsity: float,
+        sparsity: float,
         mask: torch.Tensor,
         weights: torch.Tensor,
         *args,
         **kwargs,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            target_sparsity, mask, weights
+            sparsity, mask, weights
         )
         return mask
 
@@ -62,15 +62,15 @@ class SET(DSTMixin, BaseSparsifier):
         mask: torch.Tensor,
         original_weights: torch.Tensor,
     ):
+        old_mask = torch.clone(mask)
         # Grow new weights
         new_mask = UnstructuredRandomGrower.calculate_mask(
             sparsity,
             mask,
         )
-        assert new_mask.data_ptr() != mask.data_ptr()
         # Assign newly grown weights to self.grown_weights_init
         torch.where(
-            new_mask != mask,
+            new_mask != old_mask,
             torch.full_like(
                 original_weights, fill_value=self.grown_weights_init
             ),

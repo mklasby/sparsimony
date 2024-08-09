@@ -50,7 +50,7 @@ class DSTMixin(ABC):
 
     @abstractmethod
     def prune_mask(
-        self, target_sparsity: float, mask: torch.Tensor, *args, **kwargs
+        self, sparsity: float, mask: torch.Tensor, *args, **kwargs
     ) -> torch.Tensor: ...
 
     @abstractmethod
@@ -133,7 +133,7 @@ class DSTMixin(ABC):
                 assert unequal_elements[mask == 1].all()
                 assert not unequal_elements[mask == 0].any()
             except AssertionError:
-                self._logger.warning(
+                self._logger.debug(
                     "Assertion checks failed on newly initialized values!\n"
                     f"Found {(unequal_elements[mask == 1]==False).sum().item()}"
                     " values that had the same value after reinit and "
@@ -198,7 +198,10 @@ class DSTMixin(ABC):
             # With very large mask tensors, we may have some precision errors
             # with exact n_ones. Therefore, we simply log the warning instead of
             # raising.
-            self._logger.warning(
+            # Also naturally occurs in structured pruning
+            # TODO: For structured pruning we may wish to calculate
+            # actual_n_ones based on network topology
+            self._logger.debug(
                 f"n_ones actual{n_ones} != n_one target {actual_n_ones}"
             )
 
@@ -276,7 +279,7 @@ class DSTMixin(ABC):
             f"Global Sparsity Actual: {global_sparsity}\n"
             f"Layerwise Sparsity Targets: {layerwise_sparsity_target}\n"
             f"Layerwise Sparsity Actual: {layerwise_sparsity_actual}\n"
-            f"Active/Total Neurons: {active_vs_total_neurons}"
+            f"Active/Total Neurons: {active_vs_total_neurons}\n"
         )
 
     def __repr__(self) -> str:

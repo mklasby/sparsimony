@@ -1,4 +1,6 @@
 from typing import Optional, Dict, Any
+from math import prod
+
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
@@ -9,13 +11,13 @@ from sparsimony.parametrization.fake_sparsity import FakeSparsityDenseGradBuffer
 from sparsimony.utils import get_mask, get_parametrization
 from sparsimony.dst.base import DSTMixin
 from sparsimony.mask_calculators import (
+    FFIRandomPruner,
+    FFIGradientGrower,
     UnstructuredMagnitudePruner,
-    UnstructuredGradientGrower,
-    UnstructuredRandomPruner,
 )
 
 
-class RigL(DSTMixin, BaseSparsifier):
+class SRigL(DSTMixin, BaseSparsifier):
 
     def __init__(
         self,
@@ -60,11 +62,12 @@ class RigL(DSTMixin, BaseSparsifier):
         original_weights: torch.Tensor,
         dense_grads: torch.Tensor,
     ) -> torch.Tensor:
+        old_mask = mask.clone()
         # Grow new weights
-        old_mask = torch.clone(mask)
-        new_mask = UnstructuredGradientGrower.calculate_mask(
+        new_mask = FFIGradientGrower.calculate_mask(
             sparsity, mask, grads=dense_grads
         )
+        assert new_mask.data_ptr() != old_mask.data_ptr()
         # Assign newly grown weights to self.grown_weights_init in place
         original_weights.data = torch.where(
             new_mask != old_mask,
@@ -123,7 +126,7 @@ class RigL(DSTMixin, BaseSparsifier):
             mask = get_mask(config["module"], config["tensor_name"])
             if self.random_mask_init:
                 # Randomly prune for step 1
-                mask.data = UnstructuredRandomPruner.calculate_mask(
+                mask.data = FFIRandomPruner.calculate_mask(
                     config["sparsity"], mask
                 )
             else:
@@ -154,3 +157,44 @@ class RigL(DSTMixin, BaseSparsifier):
             self.prune_mask(target_sparsity, mask, weights)
             self.grow_mask(sparsity, mask, original_weights, dense_grads)
             self._assert_sparsity_level(mask, sparsity)
+
+    def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
+        n_ones = mask.sum()
+        actual_n_ones = int(mask.numel() * (1 - sparsity_level))
+        if n_ones != actual_n_ones:
+            # With very large mask tensors, we may have some precision errors
+            # with exact n_ones. Therefore, we simply log the warning instead of
+            # raising.
+            # Also naturally occurs in structured pruning
+            # TODO: For structured pruning we may wish to calculate
+            # actual_n_ones based on network topology
+            self._logger.debug(
+                f"n_ones actual{n_ones} != n_one target {actual_n_ones}"
+            )
+        ffi = torch.tensor([m.sum() for m in mask])
+        _error = False
+        if len(ffi.unique()) == 1:
+            return
+        elif len(ffi.unique()) == 2:
+            if not (ffi.unique() == 0).any():
+                _error = True
+        else:
+            _error = True
+        if _error:
+            self._logger.debug(
+                "FFI error: Multiple non-zero FFI values detected: "
+                f"{ffi.unique()}"
+            )
+
+    def __str__(self) -> str:
+        ffi = []
+        for config in self.groups:
+            mask = get_mask(**config)
+            mask_flat = mask.view(mask.shape[0], prod(mask.shape[1:]))
+            this_ffi = mask_flat.sum(dim=1, dtype=torch.int).unique()
+            if len(this_ffi) > 1:
+                this_ffi = this_ffi[this_ffi != 0]
+            ffi.append(this_ffi.item())
+        s = super().__str__()
+        s += f"FFI: {ffi}\n"
+        return s

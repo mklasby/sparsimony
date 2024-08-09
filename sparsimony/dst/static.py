@@ -4,7 +4,7 @@ from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 from sparsimony.dst.base import DSTMixin
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.parametrization.fake_sparsity import FakeSparsity
-from sparsimony.pruners.unstructured import UnstructuredMagnitudePruner
+from sparsimony.mask_calculators import UnstructuredMagnitudePruner
 from sparsimony.utils import get_mask
 
 

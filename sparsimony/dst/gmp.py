@@ -8,7 +8,7 @@ from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsity
 from sparsimony.utils import get_mask
 from sparsimony.dst.base import DSTMixin
-from sparsimony.pruners.unstructured import (
+from sparsimony.mask_calculators import (
     UnstructuredMagnitudePruner,
 )
 
@@ -34,12 +34,12 @@ class GMP(DSTMixin, BaseSparsifier):
 
     def prune_mask(
         self,
-        target_sparsity: float,
+        sparsity: float,
         mask: torch.Tensor,
         weights: torch.Tensor,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            target_sparsity, mask, weights
+            sparsity, mask, weights
         )
         return mask
 
