@@ -153,8 +153,8 @@ def test_zero_inactive_param_momentum_buffers_adamw(model, sparsity):
 
 def test_prune_ratio_sparsity_conversion(mask, sparsity):
     current_sparsity = (mask == 0).sum() / mask.numel()
-    expected_prune_ratio = (sparsity - current_sparsity) / (
-        1 - current_sparsity
+    expected_prune_ratio = round(
+        ((sparsity - current_sparsity) / (1 - current_sparsity)).item(), 6
     )
     prune_ratio = DSTMixin.get_prune_ratio_from_sparsity(mask, sparsity)
     assert expected_prune_ratio == prune_ratio

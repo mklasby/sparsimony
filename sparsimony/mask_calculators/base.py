@@ -55,7 +55,7 @@ class BasePruner(BaseMaskCalculator):
             int: The number of elements to be dropped from a mask
                 tensor given a target sparsity
         """
-        n_drop = int(
+        n_drop = math.ceil(
             mask.sum(dtype=torch.int) - ((1 - sparsity) * mask.numel())
         )
         return n_drop
