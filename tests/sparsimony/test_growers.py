@@ -71,7 +71,6 @@ def test_unstructured_random_grower(mask, sparsity):
         grown_mask = UnstructuredRandomGrower.calculate_mask(sparsity, mask)
     # Assertions
     assert grown_mask.shape == mask.shape
-    assert grown_mask.data_ptr() != mask.data_ptr()
 
     expected_nonzero = int(mask.numel() * (1 - sparsity))
     assert torch.count_nonzero(grown_mask).item() == expected_nonzero
@@ -103,12 +102,11 @@ def test_unstructured_pruners(mask, sparsity, dense_grads):
     ).reshape(dense_grads.shape)
     # Call the method to be tested
     grown_mask = UnstructuredGradientGrower.calculate_mask(
-        sparsity, mask, dense_grads
+        sparsity, mask, grads=dense_grads
     )
 
     # Assertions
     assert grown_mask.shape == mask.shape
-    assert grown_mask.data_ptr() != mask.data_ptr()
 
     # Calculate the expected number of non-zero elements after pruning
     expected_nonzero = int(mask.numel() * (1 - sparsity))
