@@ -21,7 +21,7 @@ from sparsimony.dst.base import DSTMixin
             0.2,
         ),
         (  # 32x3x3 mask and initial sparsity of 90%
-            (32, 3, 3),
+            (32, 3, 3, 3),
             0.9,
         ),
         (  # 768x3072 mask and initial sparsity of 99%
