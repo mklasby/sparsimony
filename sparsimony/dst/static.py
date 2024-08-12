@@ -36,17 +36,12 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
             weights = getattr(config["module"], config["tensor_name"])
-            mask.data = UnstructuredMagnitudePruner.calculate_mask(
-                config["sparsity"], mask, weights
-            )
+            mask.data = self.prune_mask(config["sparsity"], mask, weights)
             self._assert_sparsity_level(mask.data, self.sparsity)
 
     def _step(self):
         self._step_count += 1
         # Basically do nothing to change the mask
-
-    def grow_mask(self):
-        pass
 
     def prune_mask(
         self,
@@ -60,6 +55,9 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
             target_sparsity, mask, weights
         )
         return mask
+
+    def grow_mask(self):
+        pass
 
     def update_mask(self):
         pass
