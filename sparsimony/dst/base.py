@@ -184,7 +184,7 @@ class DSTMixin(ABC):
         cls, mask: torch.Tensor, sparsity: float
     ) -> float:
         current_sparsity = (mask == 0).sum() / mask.numel()
-        return (sparsity - current_sparsity) / (1 - current_sparsity)
+        return (sparsity - current_sparsity) / (1 - current_sparsity).item()
 
     @classmethod
     def get_sparsity_from_prune_ratio(
