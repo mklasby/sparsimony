@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from sparsimony import rigl
+from sparsimony.api import rigl
 from sparsimony.dst.base import DSTMixin
 
 
