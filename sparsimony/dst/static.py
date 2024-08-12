@@ -48,8 +48,18 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
     def grow_mask(self):
         pass
 
-    def prune_mask(self):
-        pass
+    def prune_mask(
+        self,
+        target_sparsity: float,
+        mask: torch.Tensor,
+        weights: torch.Tensor,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        mask.data = UnstructuredMagnitudePruner.calculate_mask(
+            target_sparsity, mask, weights
+        )
+        return mask
 
     def update_mask(self):
         pass
