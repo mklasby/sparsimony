@@ -16,3 +16,4 @@ from .fine_grained import (
     FFIRandomGrower,
     FFIRandomPruner,
 )
+from .base import HierarchicalMaskCalculator

@@ -162,3 +162,17 @@ def calculate_per_tile_n_ones(mask: torch.Tensor, sparsity: float):
     n_ones = int(mask.numel() * (1 - sparsity))
     n_ones_per_tile = n_ones // mask.shape[0]
     return n_ones_per_tile
+
+
+def view_tensor_as_neuron(t: torch.Tensor):
+    original_size = t.shape
+    if len(original_size) == 2:
+        return t.view(size=(-1, original_size[-1]))
+    elif len(original_size) == 4:
+        # conv
+        return t.view(size=(-1, prod(original_size[1:])))
+    else:
+        raise NotImplementedError(
+            "Sparsimony currently only support parameterized tensors of dim"
+            " 2 or 4"
+        )
