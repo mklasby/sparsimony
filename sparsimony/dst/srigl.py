@@ -14,6 +14,8 @@ from sparsimony.mask_calculators import (
     FFIRandomPruner,
     FFIGradientGrower,
     UnstructuredMagnitudePruner,
+    NeuronMagnitudePruner,
+    HierarchicalMaskCalculator,
 )
 
 
@@ -50,8 +52,14 @@ class SRigL(DSTMixin, BaseSparsifier):
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            sparsity, mask, weights=weights
+        sparsities = [sparsity / 2 for _ in range(2)]
+        calcs = [NeuronMagnitudePruner, UnstructuredMagnitudePruner]
+        calc_kwargs = [
+            dict(weights=weights),
+            dict(weights=weights),
+        ]
+        mask.data = HierarchicalMaskCalculator.calculate_mask(
+            sparsities, mask, calcs, calc_kwargs
         )
         return mask
 

@@ -12,9 +12,10 @@ from sparsimony.utils import view_tensors_as
 
 
 class UnstructuredRandomPruner(FineGrainedPruner, RandomPruner):
+    _TILE_VIEW = (1, -1)
 
     @classmethod
-    @view_tensors_as((1, -1))
+    @view_tensors_as(_TILE_VIEW)
     def calculate_mask(
         cls,
         sparsity: float,
@@ -29,9 +30,10 @@ class UnstructuredRandomPruner(FineGrainedPruner, RandomPruner):
 
 
 class UnstructuredMagnitudePruner(FineGrainedPruner, MagnitudePruner):
+    _TILE_VIEW = (1, -1)
 
     @classmethod
-    @view_tensors_as((1, -1))
+    @view_tensors_as(_TILE_VIEW)
     def calculate_mask(
         cls,
         sparsity: float,
@@ -46,9 +48,10 @@ class UnstructuredMagnitudePruner(FineGrainedPruner, MagnitudePruner):
 
 
 class UnstructuredRandomGrower(FineGrainedGrower, RandomGrower):
+    _TILE_VIEW = (1, -1)
 
     @classmethod
-    @view_tensors_as((1, -1))
+    @view_tensors_as(_TILE_VIEW)
     def calculate_mask(
         cls,
         sparsity: float,
@@ -63,9 +66,10 @@ class UnstructuredRandomGrower(FineGrainedGrower, RandomGrower):
 
 
 class UnstructuredGradientGrower(FineGrainedGrower, GradientGrower):
+    _TILE_VIEW = (1, -1)
 
     @classmethod
-    @view_tensors_as((1, -1))
+    @view_tensors_as(_TILE_VIEW)
     def calculate_mask(
         cls,
         sparsity: float,

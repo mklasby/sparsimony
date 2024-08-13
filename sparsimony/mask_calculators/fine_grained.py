@@ -12,6 +12,7 @@ from sparsimony.utils import view_tensors_as_neurons
 
 
 class FFIRandomPruner(FineGrainedPruner, RandomPruner):
+    _TILE_VIEW = "neuron"
 
     @classmethod
     @view_tensors_as_neurons
@@ -29,6 +30,7 @@ class FFIRandomPruner(FineGrainedPruner, RandomPruner):
 
 
 class FFIMagnitudePruner(FineGrainedPruner, MagnitudePruner):
+    _TILE_VIEW = "neuron"
 
     @classmethod
     @view_tensors_as_neurons
@@ -46,6 +48,7 @@ class FFIMagnitudePruner(FineGrainedPruner, MagnitudePruner):
 
 
 class FFIRandomGrower(FineGrainedGrower, RandomGrower):
+    _TILE_VIEW = "neuron"
 
     @classmethod
     @view_tensors_as_neurons
@@ -63,6 +66,7 @@ class FFIRandomGrower(FineGrainedGrower, RandomGrower):
 
 
 class FFIGradientGrower(FineGrainedGrower, GradientGrower):
+    _TILE_VIEW = "neuron"
 
     @classmethod
     @view_tensors_as_neurons
