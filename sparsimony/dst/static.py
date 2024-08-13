@@ -14,12 +14,16 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
         optimizer: torch.optim.Optimizer,
         distribution: BaseDistribution,
         sparsity: float,
+        *args,
+        **kwargs,
     ):
         optimizer = optimizer
         self.distribution = distribution
         self.sparsity = sparsity
         defaults = dict(parametrization=FakeSparsity)
-        super().__init__(optimizer=optimizer, defaults=defaults)
+        super().__init__(
+            optimizer=optimizer, defaults=defaults, *args, **kwargs
+        )
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
         n_ones = mask.sum()
