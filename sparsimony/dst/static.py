@@ -14,12 +14,16 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
         optimizer: torch.optim.Optimizer,
         distribution: BaseDistribution,
         sparsity: float,
+        *args,
+        **kwargs,
     ):
         optimizer = optimizer
         self.distribution = distribution
         self.sparsity = sparsity
         defaults = dict(parametrization=FakeSparsity)
-        super().__init__(optimizer=optimizer, defaults=defaults)
+        super().__init__(
+            optimizer=optimizer, defaults=defaults, *args, **kwargs
+        )
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
         n_ones = mask.sum()
@@ -36,19 +40,27 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
             weights = getattr(config["module"], config["tensor_name"])
-            mask.data = UnstructuredMagnitudePruner.calculate_mask(
-                config["sparsity"], mask, weights
-            )
+            mask.data = self.prune_mask(config["sparsity"], mask, weights)
             self._assert_sparsity_level(mask.data, self.sparsity)
 
     def _step(self):
         self._step_count += 1
         # Basically do nothing to change the mask
 
-    def grow_mask(self):
-        pass
+    def prune_mask(
+        self,
+        target_sparsity: float,
+        mask: torch.Tensor,
+        weights: torch.Tensor,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        mask.data = UnstructuredMagnitudePruner.calculate_mask(
+            target_sparsity, mask, weights
+        )
+        return mask
 
-    def prune_mask(self):
+    def grow_mask(self):
         pass
 
     def update_mask(self):
