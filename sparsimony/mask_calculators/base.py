@@ -375,7 +375,7 @@ class RandomPruner(BasePruner):
         **kwargs,
     ):
         return torch.where(
-            mask == 1,
+            torch.logical_and(mask == 1, mask != cls._SCORE_FILL_VALUE),
             torch.abs(torch.rand_like(mask)) + cls._EPS,
             torch.full_like(mask, cls._SCORE_FILL_VALUE),
         )
@@ -393,7 +393,7 @@ class MagnitudePruner(BasePruner):
         **kwargs,
     ):
         return torch.where(
-            mask == 1,
+            torch.logical_and(mask == 1, mask != cls._SCORE_FILL_VALUE),
             torch.abs(weights[candidate_tiles]),
             torch.full_like(weights[candidate_tiles], cls._SCORE_FILL_VALUE),
         )
@@ -425,7 +425,7 @@ class RandomGrower(BaseGrower):
         cls, mask: torch.Tensor, candidate_tiles: torch.Tensor, *args, **kwargs
     ):
         return torch.where(
-            mask == 0,
+            torch.logical_and(mask == 0, mask != cls._SCORE_FILL_VALUE),
             torch.abs(torch.rand_like(mask))
             + cls._EPS,  # small eps for avoiding 0s
             torch.full_like(mask, cls._SCORE_FILL_VALUE),
@@ -447,7 +447,7 @@ class GradientGrower(BaseGrower):
             # Randomly grow
             return RandomGrower.get_scores(mask, candidate_tiles)
         return torch.where(
-            mask == 0,
+            torch.logical_and(mask == 0, mask != cls._SCORE_FILL_VALUE),
             torch.abs(grads[candidate_tiles]),
             torch.full_like(mask, cls._SCORE_FILL_VALUE),
         )

@@ -109,7 +109,9 @@ def transform_args_kwargs_tensors(
     return args, kwargs
 
 
-def view_tensors_as(size: Tuple[int], pad: bool = False) -> Callable:
+def view_tensors_as(
+    size: Tuple[int], pad: bool = False, pad_value=float("inf")
+) -> Callable:
     if not isinstance(size, Tuple):
         size = (1, size)
 
@@ -118,7 +120,9 @@ def view_tensors_as(size: Tuple[int], pad: bool = False) -> Callable:
         def wrapped_fn(*args, **kwargs) -> torch.Tensor:
             original_size = get_original_tensor_size(*args, **kwargs)
             if pad:
-                op = functools.partial(pad_tensor_to_tile_view, tile_view=size)
+                op = functools.partial(
+                    pad_tensor_to_tile_view, tile_view=size, value=pad_value
+                )
                 args, kwargs = transform_args_kwargs_tensors(
                     op, *args, **kwargs
                 )
@@ -127,7 +131,7 @@ def view_tensors_as(size: Tuple[int], pad: bool = False) -> Callable:
             out = fn(*args, **kwargs)
             if pad:
                 kwargs.update({"_out": out})
-                op = functools.partial(unpad_tensor)
+                op = functools.partial(unpad_tensor, value=pad_value)
                 args, kwargs = transform_args_kwargs_tensors(
                     op, *args, **kwargs
                 )
