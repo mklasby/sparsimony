@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any
 from math import prod
 
+from sparsimony.mask_calculators.fine_grained import FFIMagnitudePruner
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
@@ -30,6 +31,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         sparsity: float = 0.5,
         grown_weights_init: float = 0.0,
         init_method: Optional[str] = "grad_flow",
+        random_mask_init: bool = False,
         *args,
         **kwargs,
     ):
@@ -41,7 +43,11 @@ class SRigL(DSTMixin, BaseSparsifier):
         if defaults is None:
             defaults = dict(parametrization=FakeSparsityDenseGradBuffer)
         super().__init__(
-            optimizer=optimizer, defaults=defaults, *args, **kwargs
+            optimizer=optimizer,
+            defaults=defaults,
+            random_mask_init=random_mask_init,
+            *args,
+            **kwargs,
         )
 
     def prune_mask(
@@ -52,8 +58,8 @@ class SRigL(DSTMixin, BaseSparsifier):
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        sparsities = [sparsity / 2 for _ in range(2)]
         calcs = [NeuronMagnitudePruner, UnstructuredMagnitudePruner]
+        sparsities = [sparsity / i for i in range(len(calcs), 0, -1)]
         calc_kwargs = [
             dict(weights=weights),
             dict(weights=weights),
@@ -71,9 +77,15 @@ class SRigL(DSTMixin, BaseSparsifier):
         dense_grads: torch.Tensor,
     ) -> torch.Tensor:
         old_mask = mask.clone()
+        score_override = HierarchicalMaskCalculator._get_score_override(
+            mask, tile_view=NeuronMagnitudePruner._TILE_VIEW
+        )
         # Grow new weights
         new_mask = FFIGradientGrower.calculate_mask(
-            sparsity, mask, grads=dense_grads
+            sparsity,
+            mask,
+            grads=dense_grads,
+            score_override=score_override,
         )
         assert new_mask.data_ptr() != old_mask.data_ptr()
         # Assign newly grown weights to self.grown_weights_init in place
@@ -130,17 +142,30 @@ class SRigL(DSTMixin, BaseSparsifier):
     def _initialize_masks(self) -> None:
         self._distribute_sparsity(self.sparsity)
         for config in self.groups:
+            if config["sparsity"] == 0:
+                continue
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
+            calcs = [NeuronMagnitudePruner]
+            weights = getattr(config["module"], config["tensor_name"])
+            calc_kwargs = [
+                dict(weights=weights),
+            ]
             if self.random_mask_init:
                 # Randomly prune for step 1
-                mask.data = FFIRandomPruner.calculate_mask(
-                    config["sparsity"], mask
-                )
+                calcs.append(FFIRandomPruner)
+                calc_kwargs.append({})
             else:
-                # use pruning criterion
-                weights = getattr(config["module"], config["tensor_name"])
-                mask.data = self.prune_mask(config["sparsity"], mask, weights)
+                # use FFI mag pruning criterion
+                calcs.append(FFIMagnitudePruner)
+                calc_kwargs.append(dict(weights=weights))
+            sparsities = [
+                config["sparsity"] / i for i in range(len(calcs), 0, -1)
+            ]
+            mask.data = HierarchicalMaskCalculator.calculate_mask(
+                sparsities, mask, calcs, calc_kwargs
+            )
+            self._assert_ffi(mask, config["tensor_fqn"])
 
     def update_mask(
         self,
@@ -149,6 +174,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         sparsity: float,
         prune_ratio: float,
         dense_grads: torch.Tensor,
+        tensor_fqn: str,
         **kwargs,
     ):
         mask = get_mask(module, tensor_name)
@@ -165,6 +191,7 @@ class SRigL(DSTMixin, BaseSparsifier):
             self.prune_mask(target_sparsity, mask, weights)
             self.grow_mask(sparsity, mask, original_weights, dense_grads)
             self._assert_sparsity_level(mask, sparsity)
+            self._assert_ffi(mask, tensor_fqn)
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
         n_ones = mask.sum()
@@ -195,14 +222,25 @@ class SRigL(DSTMixin, BaseSparsifier):
             )
 
     def __str__(self) -> str:
-        ffi = []
-        for config in self.groups:
-            mask = get_mask(**config)
-            mask_flat = mask.view(mask.shape[0], prod(mask.shape[1:]))
-            this_ffi = mask_flat.sum(dim=1, dtype=torch.int).unique()
-            if len(this_ffi) > 1:
-                this_ffi = this_ffi[this_ffi != 0]
-            ffi.append(this_ffi.item())
         s = super().__str__()
-        s += f"FFI: {ffi}\n"
+        if self.prepared_:
+            ffi = []
+            for config in self.groups:
+                mask = get_mask(**config)
+                mask_flat = mask.view(mask.shape[0], prod(mask.shape[1:]))
+                this_ffi = mask_flat.sum(dim=1, dtype=torch.int).unique()
+                if len(this_ffi) > 1:
+                    this_ffi = this_ffi[this_ffi != 0]
+                ffi.append(this_ffi.item())
+            s += f"FFI: {ffi}\n"
         return s
+
+    def _assert_ffi(self, mask, fqn: str) -> None:
+        mask_flat = mask.view(mask.shape[0], prod(mask.shape[1:]))
+        ffi = torch.count_nonzero(mask_flat, dim=-1)
+        if len(ffi) > 1:
+            ffi = ffi[ffi != 0]
+        if len(ffi.unique()) > 1:
+            raise RuntimeError(
+                f"FFI Violation found: {ffi.unique()} ffi's in layer {fqn}"
+            )
