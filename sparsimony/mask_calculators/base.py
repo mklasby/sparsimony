@@ -12,6 +12,7 @@ from sparsimony.utils import calculate_per_tile_n_ones, view_tensor_as_neuron
 class BaseMaskCalculator(ABC):
     _OVERRIDE_SENTINEL_VALUE: float = float("-inf")
     _EPS = 0.001
+    _logger = logging.getLogger(__name__)
 
     @classmethod
     @abstractmethod
@@ -130,7 +131,15 @@ class FineGrainedPruner(BasePruner):
 
 
 class StructuredPruner(BasePruner):
-    _logger = logging.getLogger(__name__)
+
+    @classmethod
+    def _get_n_tiles_to_drop(cls, sparsity: float, mask: torch.Tensor) -> int:
+        nnz_el_target = math.floor(mask.numel() * (1 - sparsity))
+        nnz_tiles = (torch.count_nonzero(mask, dim=-1) != 0).sum()
+        n_tiles_to_drop = math.ceil(
+            (nnz_tiles * mask.shape[-1] - nnz_el_target) / mask.shape[-1]
+        )
+        return n_tiles_to_drop
 
     @classmethod
     def calculate_mask(
@@ -142,12 +151,19 @@ class StructuredPruner(BasePruner):
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        n_drop = cls.calculate_n_drop(mask, sparsity)
-        n_tiles_to_drop = math.ceil(n_drop / mask.shape[1])
-        cls._logger.debug(
-            f"Dropping {n_tiles_to_drop} * {mask.shape[-1]} == "
-            f"{n_tiles_to_drop*mask.shape[-1]} actual vs. n_drop want: {n_drop}"
-        )
+        # nnz_tiles = (torch.count_nonzero(mask, dim=-1) == 0).sum()
+        n_tiles_to_drop = cls._get_n_tiles_to_drop(sparsity, mask)
+        # cls._logger.debug(
+        #     f"Dropping {n_tiles_to_drop} * {mask.shape[-1]} == "
+        #     f"{n_tiles_to_drop*mask.shape[-1]} actual vs. n_drop want: {n_drop}"  # noqa
+        # )
+        if n_tiles_to_drop < 0:
+            cls._logger.warning(
+                f"n_tiles_to_drop is <0 ({n_tiles_to_drop}), continuing..."
+            )
+            return mask
+        if n_tiles_to_drop == 0:
+            return mask
         candidate_tiles = cls._get_candidate_tiles(
             mask,
             score_override,
@@ -167,7 +183,6 @@ class StructuredPruner(BasePruner):
 
 
 class HierarchicalMaskCalculator(BaseMaskCalculator):
-    _logger = logging.getLogger(__name__)
 
     @classmethod
     def calculate_mask(
@@ -217,6 +232,7 @@ class HierarchicalMaskCalculator(BaseMaskCalculator):
         score_override = cls._reshape_t_as_view(score_override, _orig_shape)
         return score_override
 
+    @classmethod
     def _reshape_t_as_view(cls, t: torch.Tensor, view: str | Tuple[int]):
         if view == "neuron":
             return view_tensor_as_neuron(t)
@@ -266,10 +282,11 @@ class FineGrainedGrower(BaseGrower):
         n_grow = cls.get_n_grow(mask, sparsity)
         candidate_tiles = cls._get_candidate_tiles(mask, score_override)
         mask_slice = mask[candidate_tiles]
-        n_ones_per_tile_target = calculate_per_tile_n_ones(mask_slice, sparsity)
-        n_grow_per_tile = torch.tensor(
-            [n_ones_per_tile_target - n.sum().item() for n in mask_slice],
-            dtype=torch.int,
+        n_ones_per_tile_target = calculate_per_tile_n_ones(
+            mask, sparsity, candidate_tiles
+        )
+        n_grow_per_tile = n_ones_per_tile_target - torch.count_nonzero(
+            mask_slice, dim=-1
         )
         assert (n_grow_per_tile >= 0).all()
         assert n_grow_per_tile.sum() <= n_grow
@@ -292,6 +309,12 @@ class FineGrainedGrower(BaseGrower):
             for n_idx, (score, n_grow_this_tile) in enumerate(
                 list(zip(scores, n_grow_per_tile.tolist()))
             ):
+                if n_grow_this_tile > len(score):
+                    cls._logger.warning(
+                        "n_grow_this_tile > len(score): "
+                        f"{n_grow_this_tile} > {len(score)}"
+                    )
+                    n_grow_this_tile = len(score)
                 _, indices = torch.topk(score, k=n_grow_this_tile, largest=True)
                 mask_slice[n_idx] = mask_slice[n_idx].scatter(
                     dim=-1,
@@ -382,14 +405,18 @@ class ThresholdPruner(BasePruner):
         cls,
         mask: torch.Tensor,
         candidate_tiles: torch.Tensor,
+        scorer: BaseMaskCalculator,
         scoring_tensor: torch.Tensor,
         score_threshold: float,
         *args,
         **kwargs,
     ):
-        # TODO: Return score == 1 if
-        # (| scoring_tensor | > score_threshold ) & ( mask == 1)
-        pass
+        scores = scorer.get_scores(mask, candidate_tiles, scoring_tensor)
+        return torch.where(
+            scores > score_threshold,
+            torch.one_like(mask),
+            torch.zeros_like(mask),
+        )
 
 
 class RandomGrower(BaseGrower):

@@ -1,9 +1,10 @@
-from typing import Tuple, Callable, Dict, Any
+from typing import List, Tuple, Callable, Dict, Any
 import functools
 from math import prod
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from sparsimony.parametrization.fake_sparsity import (
     FakeSparsity,
@@ -108,7 +109,7 @@ def transform_args_kwargs_tensors(
     return args, kwargs
 
 
-def view_tensors_as(size: Tuple[int]) -> Callable:
+def view_tensors_as(size: Tuple[int], pad: bool = False) -> Callable:
     if not isinstance(size, Tuple):
         size = (1, size)
 
@@ -116,9 +117,22 @@ def view_tensors_as(size: Tuple[int]) -> Callable:
         @functools.wraps(fn)
         def wrapped_fn(*args, **kwargs) -> torch.Tensor:
             original_size = get_original_tensor_size(*args, **kwargs)
+            if pad:
+                op = functools.partial(pad_tensor_to_tile_view, tile_view=size)
+                args, kwargs = transform_args_kwargs_tensors(
+                    op, *args, **kwargs
+                )
             op = functools.partial(torch.Tensor.view, size=size)
             args, kwargs = transform_args_kwargs_tensors(op, *args, **kwargs)
-            return fn(*args, **kwargs).reshape(original_size)
+            out = fn(*args, **kwargs)
+            if pad:
+                kwargs.update({"_out": out})
+                op = functools.partial(unpad_tensor)
+                args, kwargs = transform_args_kwargs_tensors(
+                    op, *args, **kwargs
+                )
+                out = kwargs["_out"]
+            return out.reshape(original_size)
 
         return wrapped_fn
 
@@ -158,9 +172,17 @@ def view_tensors_as_neurons(fn: Callable) -> Callable:
     return wrapped_fn
 
 
-def calculate_per_tile_n_ones(mask: torch.Tensor, sparsity: float):
-    n_ones = int(mask.numel() * (1 - sparsity))
-    n_ones_per_tile = n_ones // mask.shape[0]
+def calculate_per_tile_n_ones(
+    mask: torch.Tensor,
+    sparsity: float,
+    candidate_tiles: List[int] | None = None,
+):
+    if candidate_tiles is not None:
+        mask_slice = mask[candidate_tiles]
+    else:
+        mask_slice = mask
+    n_ones_total = int(mask.numel() * (1 - sparsity))
+    n_ones_per_tile = n_ones_total // mask_slice.shape[0]
     return n_ones_per_tile
 
 
@@ -176,3 +198,17 @@ def view_tensor_as_neuron(t: torch.Tensor):
             "Sparsimony currently only support parameterized tensors of dim"
             " 2 or 4"
         )
+
+
+def pad_tensor_to_tile_view(
+    t: torch.Tensor, tile_view: Tuple[int], value: float = float("inf")
+) -> torch.Tensor:
+    t = view_tensor_as_neuron(t)
+    pad = (-1, tile_view[-1] + 1 - t.shape[-1])
+    out = F.pad(t, pad, "constant", value)
+    return out
+
+
+def unpad_tensor(t: torch.Tensor, value: float = float("inf")):
+    indx = torch.argwhere(t == value)[0, 1]  # assume equal padding each row
+    return t[:, :indx]
