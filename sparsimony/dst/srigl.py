@@ -17,6 +17,7 @@ from sparsimony.mask_calculators import (
     UnstructuredMagnitudePruner,
     NeuronMagnitudePruner,
     HierarchicalMaskCalculator,
+    NeuronSRigLPruner,
 )
 
 
@@ -32,6 +33,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         grown_weights_init: float = 0.0,
         init_method: Optional[str] = "grad_flow",
         random_mask_init: bool = False,
+        gamma_sal: None | float = 0.3,
         *args,
         **kwargs,
     ):
@@ -40,6 +42,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         self.sparsity = sparsity
         self.grown_weights_init = grown_weights_init
         self.init_method = init_method
+        self.gamma_sal = gamma_sal
         if defaults is None:
             defaults = dict(parametrization=FakeSparsityDenseGradBuffer)
         super().__init__(
@@ -55,15 +58,27 @@ class SRigL(DSTMixin, BaseSparsifier):
         sparsity: float,
         mask: torch.Tensor,
         weights: torch.Tensor,
+        dense_grads: torch.Tensor,
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        calcs = [NeuronMagnitudePruner, UnstructuredMagnitudePruner]
-        sparsities = [sparsity / i for i in range(len(calcs), 0, -1)]
-        calc_kwargs = [
-            dict(weights=weights),
-            dict(weights=weights),
-        ]
+        if self.gamma_sal is None:
+            # Specify 50% sparsity per level
+            # TODO: Specify a distribution for this?
+            calcs = [NeuronMagnitudePruner, UnstructuredMagnitudePruner]
+            sparsities = [sparsity / i for i in range(len(calcs), 0, -1)]
+            calc_kwargs = [
+                dict(weights=weights),
+                dict(weights=weights),
+            ]
+        else:
+            # Enable gamma_sal driven ablation
+            calcs = [NeuronSRigLPruner, UnstructuredMagnitudePruner]
+            sparsities = [sparsity, sparsity]
+            calc_kwargs = [
+                dict(weights=weights, grads=dense_grads),
+                dict(weights=weights),
+            ]
         mask.data = HierarchicalMaskCalculator.calculate_mask(
             sparsities, mask, calcs, calc_kwargs
         )
@@ -145,12 +160,20 @@ class SRigL(DSTMixin, BaseSparsifier):
             if config["sparsity"] == 0:
                 continue
             # Prune to target sparsity for this step
-            mask = get_mask(config["module"], config["tensor_name"])
-            calcs = [NeuronMagnitudePruner]
             weights = getattr(config["module"], config["tensor_name"])
-            calc_kwargs = [
-                dict(weights=weights),
-            ]
+            mask = get_mask(config["module"], config["tensor_name"])
+            if self.gamma_sal is None:
+                calcs = [NeuronMagnitudePruner]
+                calc_kwargs = [
+                    dict(weights=weights),
+                ]
+                sparsities = [
+                    config["sparsity"] / i for i in range(len(calcs), 0, -1)
+                ]
+            else:
+                calcs = []
+                calc_kwargs = []
+                sparsities = [config["sparsity"]]
             if self.random_mask_init:
                 # Randomly prune for step 1
                 calcs.append(FFIRandomPruner)
@@ -159,9 +182,6 @@ class SRigL(DSTMixin, BaseSparsifier):
                 # use FFI mag pruning criterion
                 calcs.append(FFIMagnitudePruner)
                 calc_kwargs.append(dict(weights=weights))
-            sparsities = [
-                config["sparsity"] / i for i in range(len(calcs), 0, -1)
-            ]
             mask.data = HierarchicalMaskCalculator.calculate_mask(
                 sparsities, mask, calcs, calc_kwargs
             )
@@ -188,7 +208,7 @@ class SRigL(DSTMixin, BaseSparsifier):
             target_sparsity = self.get_sparsity_from_prune_ratio(
                 mask, prune_ratio
             )
-            self.prune_mask(target_sparsity, mask, weights)
+            self.prune_mask(target_sparsity, mask, weights, dense_grads)
             self.grow_mask(sparsity, mask, original_weights, dense_grads)
             self._assert_sparsity_level(mask, sparsity)
             self._assert_ffi(mask, tensor_fqn)
@@ -239,6 +259,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         mask_flat = mask.view(mask.shape[0], prod(mask.shape[1:]))
         ffi = torch.count_nonzero(mask_flat, dim=-1)
         if len(ffi) > 1:
+            # Remove ablated neurons
             ffi = ffi[ffi != 0]
         if len(ffi.unique()) > 1:
             raise RuntimeError(

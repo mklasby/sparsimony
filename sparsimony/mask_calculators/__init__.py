@@ -9,6 +9,7 @@ from .neuron import (
     NeuronMagnitudePruner,
     NeuronRandomGrower,
     NeuronRandomPruner,
+    NeuronSRigLPruner,
 )
 from .fine_grained import (
     FFIGradientGrower,

@@ -336,6 +336,17 @@ class DSTMixin(ABC):
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()
 
+    @property
+    def active_neurons(self):
+        active_neurons = 0
+        total_neurons = 0
+        for config in self.groups:
+            mask = get_mask(**config)
+            mask_flat = mask.view(mask.shape[0], -1)
+            active_neurons += (mask_flat.sum(dim=-1) != 0).sum()
+            total_neurons += mask_flat.shape[0]
+        return active_neurons / total_neurons
+
 
 class GlobalPruningDataHelper:
 
