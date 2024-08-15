@@ -88,13 +88,17 @@ class FineGrainedPruner(BasePruner):
             score_override,
         )
         mask_slice = mask[candidate_tiles]
-        mask_slice = mask[candidate_tiles]
         n_ones_per_tile_target = calculate_per_tile_n_ones(mask_slice, sparsity)
         n_drop_per_tile = torch.tensor(
             [n.sum().item() - n_ones_per_tile_target for n in mask_slice],
             dtype=torch.int,
         )
-        assert (n_drop_per_tile >= 0).all()
+        if not (n_drop_per_tile >= 0).all():
+            cls._logger.warning(
+                f"n_drop_per_tile < 0 ({n_drop_per_tile}), "
+                "skipping this pruner..."
+            )
+            return mask
         assert n_drop_per_tile.sum() >= n_drop
         scores = cls.get_scores(
             mask_slice, candidate_tiles, *args, **kwargs
@@ -102,8 +106,6 @@ class FineGrainedPruner(BasePruner):
         if dist.is_initialized():
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
 
-        # TODO: Conditional flow on len(n_drop_per_tile.unique() == 1) to
-        # unifiy with above class
         if len(n_drop_per_tile.unique()) == 1:
             _, indices = torch.topk(
                 scores, k=n_drop_per_tile.unique().item(), largest=False
