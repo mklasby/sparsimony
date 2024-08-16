@@ -109,7 +109,7 @@ class NMMagnitudePruner(FineGrainedPruner, MagnitudePruner):
 
         @view_tensors_as(self._TILE_VIEW, self.pad, self.padding_dim)
         def reshaped_calc_mask(mask, score_override, *args, **kwargs):
-            sparsity = self.n / self.m
+            sparsity = 1 - (self.n / self.m)
 
             return func(sparsity, mask, score_override, *args, **kwargs)
 
@@ -142,7 +142,7 @@ class NMGradientGrower(FineGrainedGrower, GradientGrower):
 
         @view_tensors_as(self._TILE_VIEW, self.pad, self.padding_dim)
         def reshaped_calc_mask(mask, score_override, *args, **kwargs):
-            sparsity = self.n / self.m
+            sparsity = 1 - (self.n / self.m)
 
             return func(sparsity, mask, score_override, *args, **kwargs)
 

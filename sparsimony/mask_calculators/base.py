@@ -57,9 +57,7 @@ class BasePruner(BaseMaskCalculator):
                 tensor given a target sparsity
         """
 
-        n_drop = math.ceil(
-            mask.sum(dtype=torch.int) - ((1 - sparsity) * mask.numel())
-        )
+        n_drop = math.ceil(mask.nansum() - ((1 - sparsity) * mask.numel()))
         return n_drop
 
     @classmethod
@@ -90,20 +88,26 @@ class FineGrainedPruner(BasePruner):
         )
         mask_slice = mask[candidate_tiles]
         n_ones_per_tile_target = calculate_per_tile_n_ones(mask_slice, sparsity)
+        if n_ones_per_tile_target == 0:
+            cls._logger.warning(
+                "Found a target nnz per tile of 0! All candidate tiles will be "
+                "fully pruned by this pruner."
+            )
         n_drop_per_tile = torch.tensor(
-            [
-                n.sum(dtype=torch.int).item() - n_ones_per_tile_target
-                for n in mask_slice
-            ],
+            [n.nansum().item() - n_ones_per_tile_target for n in mask_slice],
             dtype=torch.int,
         )
         if not (n_drop_per_tile >= 0).all():
             cls._logger.warning(
-                f"n_drop_per_tile < 0 ({n_drop_per_tile}), "
-                "skipping this pruner..."
+                f"n_drop_per_tile < 0 ({n_drop_per_tile}). Will skip tiles with"
+                " nnz elements < n_drop"
             )
-            return mask
-        assert n_drop_per_tile.sum() >= n_drop
+        if not (n_drop_per_tile.sum() >= n_drop):
+            cls._logger.warning(
+                "(n_drop_per_tile.sum() >= n_drop): "
+                f"({(n_drop_per_tile.sum() >= n_drop)}) Check sparsity level "
+                "and/or padding"
+            )
         scores = cls.get_scores(
             mask_slice, candidate_tiles, *args, **kwargs
         )  # Logic defined by child
@@ -111,9 +115,15 @@ class FineGrainedPruner(BasePruner):
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
 
         if len(n_drop_per_tile.unique()) == 1:
-            _, indices = torch.topk(
-                scores, k=n_drop_per_tile.unique().item(), largest=False
-            )
+            k = n_drop_per_tile.unique().item()
+            if k < 0:
+                cls._logger.warning(
+                    f"n_drop_per_tile == {k} for all tiles, skipping this "
+                    "pruner."
+                )
+                mask[candidate_tiles] = mask_slice
+                return mask
+            _, indices = torch.topk(scores, k=k, largest=False)
             mask_slice = mask_slice.scatter(
                 dim=-1,
                 index=indices,
@@ -124,6 +134,8 @@ class FineGrainedPruner(BasePruner):
             for n_idx, (score, n_drop_this_tile) in enumerate(
                 list(zip(scores, n_drop_per_tile.tolist()))
             ):
+                if n_drop_this_tile <= 0:
+                    continue
                 _, indices = torch.topk(
                     score, k=n_drop_this_tile, largest=False
                 )

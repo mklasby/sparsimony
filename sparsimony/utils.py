@@ -113,7 +113,7 @@ def transform_args_kwargs_tensors(
 def view_tensors_as(
     size: Tuple[int],
     pad: bool = False,
-    padding_dim: int = -1,
+    padding_dim: int = 1,
 ) -> Callable:
     pad_value = float("nan")
     if not isinstance(size, Tuple):
@@ -215,7 +215,6 @@ def pad_tensor_to_tile_view(
     value: float = float("nan"),
     padding_dim: int = 1,
 ) -> torch.Tensor:
-    shape = t.shape
     if padding_dim == 1:
         # pad flattened tensor
         t = t.view(-1)
@@ -226,6 +225,13 @@ def pad_tensor_to_tile_view(
         raise NotImplementedError(
             "Padding is only implemented for padding_dim in [1,2]"
         )
-    pad = (0, shape[1] % tile_view[-1])
+    if t.shape[-1] % tile_view[-1] == 0:
+        # no op, padding not required
+        return t
+    else:
+        pad = (
+            0,
+            tile_view[-1] - (t.shape[-1] + tile_view[-1]) % tile_view[-1],
+        )
     out = F.pad(t, pad, "constant", value)
     return out
