@@ -94,7 +94,7 @@ class DSTMixin(ABC):
             for mg in self.groups
         ]
 
-        return {"groups": groups}
+        return {"groups": groups, "_step_count": self._step_count}
 
     def load_state_dict(self, state_dict: Dict[str, Any], strict: bool = True):
         groups = copy.deepcopy(state_dict["groups"])
@@ -106,6 +106,8 @@ class DSTMixin(ABC):
                 raise RuntimeError(f"Error loading {tensor_fqn} into the model")
             config.update(arg_info)
         self.__setstate__({"groups": groups})
+        if "_step_count" in state_dict:
+            self._step_count = state_dict["_step_count"]
 
     def _broadcast_tensor(self, t: torch.Tensor, from_rank: int = 0) -> None:
         if torch.distributed.is_initialized():
