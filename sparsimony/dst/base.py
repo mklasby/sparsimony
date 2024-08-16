@@ -235,9 +235,9 @@ class DSTMixin(ABC):
         layerwise_sparsity_actual = collections.defaultdict(float)
         for i, config in enumerate(self.groups):
             mask = get_mask(**config)
-            layerwise_sparsity_actual[
-                config["tensor_name"] + f"{i}_sparsity"
-            ] = self.calculate_mask_sparsity(mask).item()
+            layerwise_sparsity_actual[config["tensor_fqn"] + "_sparsity"] = (
+                self.calculate_mask_sparsity(mask).item()
+            )
         return layerwise_sparsity_actual
 
     def __str__(self) -> str:
