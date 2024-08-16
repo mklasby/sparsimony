@@ -109,9 +109,13 @@ def transform_args_kwargs_tensors(
     return args, kwargs
 
 
+@torch.no_grad()
 def view_tensors_as(
-    size: Tuple[int], pad: bool = False, pad_value=float("inf")
+    size: Tuple[int],
+    pad: bool = False,
+    padding_dim: int = -1,
 ) -> Callable:
+    pad_value = float("nan")
     if not isinstance(size, Tuple):
         size = (1, size)
 
@@ -121,7 +125,10 @@ def view_tensors_as(
             original_size = get_original_tensor_size(*args, **kwargs)
             if pad:
                 op = functools.partial(
-                    pad_tensor_to_tile_view, tile_view=size, value=pad_value
+                    pad_tensor_to_tile_view,
+                    tile_view=size,
+                    value=pad_value,
+                    padding_dim=padding_dim,
                 )
                 args, kwargs = transform_args_kwargs_tensors(
                     op, *args, **kwargs
@@ -130,12 +137,9 @@ def view_tensors_as(
             args, kwargs = transform_args_kwargs_tensors(op, *args, **kwargs)
             out = fn(*args, **kwargs)
             if pad:
-                kwargs.update({"_out": out})
-                op = functools.partial(unpad_tensor, value=pad_value)
-                args, kwargs = transform_args_kwargs_tensors(
-                    op, *args, **kwargs
-                )
-                out = kwargs["_out"]
+                out = out.view(-1)
+                indx = torch.argwhere(~torch.isnan(out))[:, 0]
+                out = out[indx]
             return out.reshape(original_size)
 
         return wrapped_fn
@@ -143,6 +147,7 @@ def view_tensors_as(
     return wrapper
 
 
+@torch.no_grad()
 def view_tensors_as_neurons(fn: Callable) -> Callable:
     @functools.wraps(fn)
     def wrapped_fn(*args, **kwargs) -> torch.Tensor:
@@ -205,14 +210,22 @@ def view_tensor_as_neuron(t: torch.Tensor):
 
 
 def pad_tensor_to_tile_view(
-    t: torch.Tensor, tile_view: Tuple[int], value: float = float("inf")
+    t: torch.Tensor,
+    tile_view: Tuple[int],
+    value: float = float("nan"),
+    padding_dim: int = 1,
 ) -> torch.Tensor:
-    t = view_tensor_as_neuron(t)
-    pad = (-1, tile_view[-1] + 1 - t.shape[-1])
+    shape = t.shape
+    if padding_dim == 1:
+        # pad flattened tensor
+        t = t.view(-1)
+    elif padding_dim == 2:
+        # pad as neurons
+        t = view_tensor_as_neuron(t)
+    else:
+        raise NotImplementedError(
+            "Padding is only implemented for padding_dim in [1,2]"
+        )
+    pad = (0, shape[1] % tile_view[-1])
     out = F.pad(t, pad, "constant", value)
     return out
-
-
-def unpad_tensor(t: torch.Tensor, value: float = float("inf")):
-    indx = torch.argwhere(t == value)[0, 1]  # assume equal padding each row
-    return t[:, :indx]
