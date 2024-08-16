@@ -1,3 +1,4 @@
+import collections
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
 import copy
@@ -229,6 +230,15 @@ class DSTMixin(ABC):
                         self.optimizer.state[original_param][state_kw] *= mask
 
         self.optimizer.step = _momentum_zero_wrapper
+
+    def get_layerwise_sparsity(self) -> Dict[str, float]:
+        layerwise_sparsity_actual = collections.defaultdict(float)
+        for i, config in enumerate(self.groups):
+            mask = get_mask(**config)
+            layerwise_sparsity_actual[config["tensor_fqn"] + "_sparsity"] = (
+                self.calculate_mask_sparsity(mask).item()
+            )
+        return layerwise_sparsity_actual
 
     def __str__(self) -> str:
         def neuron_is_active(neuron):
