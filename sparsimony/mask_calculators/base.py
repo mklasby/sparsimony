@@ -35,7 +35,10 @@ class BaseMaskCalculator(ABC):
             return torch.tensor([i for i in range(len(mask))])
         else:
             return torch.argwhere(
-                score_override != cls._OVERRIDE_SENTINEL_VALUE
+                torch.logical_and(
+                    score_override != cls._OVERRIDE_SENTINEL_VALUE,
+                    ~(torch.isnan(score_override)),
+                )
             )[:, 0].unique()
 
 
@@ -78,6 +81,7 @@ class FineGrainedPruner(BasePruner):
         sparsity: float,
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
+        n_ones_per_tile_target: None | int = None,
         *args,
         **kwargs,
     ):
@@ -87,7 +91,10 @@ class FineGrainedPruner(BasePruner):
             score_override,
         )
         mask_slice = mask[candidate_tiles]
-        n_ones_per_tile_target = calculate_per_tile_n_ones(mask_slice, sparsity)
+        if n_ones_per_tile_target is None:
+            n_ones_per_tile_target = calculate_per_tile_n_ones(
+                mask_slice, sparsity
+            )
         if n_ones_per_tile_target == 0:
             cls._logger.warning(
                 "Found a target nnz per tile of 0! All candidate tiles will be "
@@ -214,6 +221,7 @@ class HierarchicalMaskCalculator(BaseMaskCalculator):
         **kwargs,
     ) -> torch.Tensor:
         # TODO: Maybe just for pruners?
+        assert len(sparsities) == len(calculators) == len(calculator_kwargs)
         for sparsity, calculator, calc_kwargs in list(
             zip(sparsities, calculators, calculator_kwargs)
         ):
@@ -240,14 +248,23 @@ class HierarchicalMaskCalculator(BaseMaskCalculator):
         if score_override is None:
             score_override = torch.zeros_like(mask)
         _orig_shape = mask.shape
-        mask = cls._reshape_t_as_view(mask, tile_view)
-        score_override = cls._reshape_t_as_view(score_override, tile_view)
+        _reshape = True
+        if isinstance(tile_view, tuple) and mask.shape[-1] % tile_view[-1] != 0:
+            cls._logger.warning(
+                "Score override requires padding, will "
+                "calculate override without reshaping mask"
+            )
+            _reshape = False
+        else:
+            mask = cls._reshape_t_as_view(mask, tile_view)
+            score_override = cls._reshape_t_as_view(score_override, tile_view)
         ablated_tile_idx = torch.argwhere(
             torch.count_nonzero(mask, dim=-1) == 0
         ).flatten()
         score_override[ablated_tile_idx] = cls._OVERRIDE_SENTINEL_VALUE
-        mask = cls._reshape_t_as_view(mask, _orig_shape)
-        score_override = cls._reshape_t_as_view(score_override, _orig_shape)
+        if _reshape:
+            mask = cls._reshape_t_as_view(mask, _orig_shape)
+            score_override = cls._reshape_t_as_view(score_override, _orig_shape)
         return score_override
 
     @classmethod
@@ -266,11 +283,11 @@ class BaseGrower(BaseMaskCalculator):
     @classmethod
     def get_n_grow(cls, mask: torch.Tensor, sparsity: float) -> int:
         # target_nnz - current nnz
-        n_grow = int(mask.numel() * (1 - sparsity) - mask.sum(dtype=torch.int))
+        n_grow = int(mask.numel() * (1 - sparsity) - mask.nansum())
         if n_grow < 0:
             raise RuntimeError(
                 f"Current sparsity > target in grow mask! Current n_ones "
-                f"{int(mask.sum(dtype=torch.int).item())} vs. Target n_ones "
+                f"{int(mask.nansum().item())} vs. Target n_ones "
                 f"{int(mask.numel() * (1 - sparsity))}"
             )
         return n_grow
@@ -294,26 +311,57 @@ class FineGrainedGrower(BaseGrower):
         sparsity: float,
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
+        n_ones_per_tile_target: None | int = None,
         *args,
         **kwargs,
     ) -> torch.Tensor:
         n_grow = cls.get_n_grow(mask, sparsity)
         candidate_tiles = cls._get_candidate_tiles(mask, score_override)
         mask_slice = mask[candidate_tiles]
-        n_ones_per_tile_target = calculate_per_tile_n_ones(
-            mask, sparsity, candidate_tiles
+        if n_ones_per_tile_target is None:
+            n_ones_per_tile_target = calculate_per_tile_n_ones(
+                mask, sparsity, candidate_tiles
+            )
+        n_grow_per_tile = (
+            n_ones_per_tile_target
+            - torch.count_nonzero(mask_slice, dim=-1)
+            + torch.isnan(mask_slice).sum(dim=-1)
         )
-        n_grow_per_tile = n_ones_per_tile_target - torch.count_nonzero(
-            mask_slice, dim=-1
+        n_grow_per_tile = torch.where(
+            n_grow_per_tile > (mask_slice == 0).sum(dim=-1),
+            (mask_slice == 0).sum(dim=-1),
+            n_grow_per_tile,
         )
-        assert (n_grow_per_tile >= 0).all()
-        assert n_grow_per_tile.sum() <= n_grow
+        if n_ones_per_tile_target == 0:
+            cls._logger.warning(
+                "Found a target nnz per tile of 0! All candidate tiles will be "
+                "left fully pruned by this grower."
+            )
+        if not (n_grow_per_tile >= 0).all():
+            cls._logger.warning(
+                f"n_grow_per_tile < 0 ({n_grow_per_tile}). Will skip tiles with"
+                " nz elements > n_grow"
+            )
+        if not (n_grow_per_tile.sum() <= n_grow):
+            cls._logger.warning(
+                "(n_grow_per_tile.sum() <= n_grow): "
+                f"({(n_grow_per_tile.sum() <= n_grow)}) Check sparsity level "
+                "and/or padding"
+            )
         scores = cls.get_scores(
             mask_slice, candidate_tiles, *args, **kwargs
         )  # Logic defined by child
         if dist.is_initialized():
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
         if len(n_grow_per_tile.unique()) == 1:
+            k = n_grow_per_tile.unique().item()
+            if k <= 0:
+                cls._logger.warning(
+                    f"n_grow_per_tile == {k} for all tiles, skipping this "
+                    "grower."
+                )
+                mask[candidate_tiles] = mask
+                return mask
             _, indices = torch.topk(
                 scores, k=n_grow_per_tile.unique().item(), largest=True
             )
@@ -327,12 +375,17 @@ class FineGrainedGrower(BaseGrower):
             for n_idx, (score, n_grow_this_tile) in enumerate(
                 list(zip(scores, n_grow_per_tile.tolist()))
             ):
+                if n_grow_this_tile <= 0:
+                    continue
                 if n_grow_this_tile > len(score):
                     cls._logger.warning(
                         "n_grow_this_tile > len(score): "
                         f"{n_grow_this_tile} > {len(score)}"
                     )
                     n_grow_this_tile = len(score)
+                not_nan = (~torch.isnan(mask_slice[n_idx])).sum()
+                if n_grow_this_tile > not_nan:
+                    n_grow_this_tile = not_nan
                 _, indices = torch.topk(score, k=n_grow_this_tile, largest=True)
                 mask_slice[n_idx] = mask_slice[n_idx].scatter(
                     dim=-1,

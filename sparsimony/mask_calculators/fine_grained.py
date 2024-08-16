@@ -1,3 +1,4 @@
+from typing import Any
 import torch
 
 from sparsimony.mask_calculators.base import (
@@ -22,7 +23,7 @@ class FFIRandomPruner(FineGrainedPruner, RandomPruner):
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
             sparsity, mask, score_override, *args, **kwargs
@@ -40,7 +41,7 @@ class FFIMagnitudePruner(FineGrainedPruner, MagnitudePruner):
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
             sparsity, mask, score_override, *args, **kwargs
@@ -58,7 +59,7 @@ class FFIRandomGrower(FineGrainedGrower, RandomGrower):
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
             sparsity, mask, score_override, *args, **kwargs
@@ -76,7 +77,7 @@ class FFIGradientGrower(FineGrainedGrower, GradientGrower):
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
             sparsity, mask, score_override, *args, **kwargs
@@ -102,16 +103,29 @@ class NMMagnitudePruner(FineGrainedPruner, MagnitudePruner):
         self,
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
+        sparsity: Any | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
+        if sparsity is not None:
+            self._logger.warning(
+                f"Sparsity value of {sparsity} passed to N:M calculator, will "
+                f"be ignored and calculated for {self.n}:{self.m} instead"
+            )
         func = super().calculate_mask
 
         @view_tensors_as(self._TILE_VIEW, self.pad, self.padding_dim)
         def reshaped_calc_mask(mask, score_override, *args, **kwargs):
             sparsity = 1 - (self.n / self.m)
 
-            return func(sparsity, mask, score_override, *args, **kwargs)
+            return func(
+                sparsity,
+                mask,
+                score_override,
+                n_ones_per_tile_target=self.n,
+                *args,
+                **kwargs,
+            )
 
         return reshaped_calc_mask(mask, score_override, *args, **kwargs)
 
@@ -135,15 +149,28 @@ class NMGradientGrower(FineGrainedGrower, GradientGrower):
         self,
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
+        sparsity: Any | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         func = super().calculate_mask
+        if sparsity is not None:
+            self._logger.warning(
+                f"Sparsity value of {sparsity} passed to N:M calculator, will "
+                f"be ignored and calculated for {self.n}:{self.m} instead"
+            )
 
         @view_tensors_as(self._TILE_VIEW, self.pad, self.padding_dim)
         def reshaped_calc_mask(mask, score_override, *args, **kwargs):
             sparsity = 1 - (self.n / self.m)
 
-            return func(sparsity, mask, score_override, *args, **kwargs)
+            return func(
+                sparsity,
+                mask,
+                score_override,
+                n_ones_per_tile_target=self.n,
+                *args,
+                **kwargs,
+            )
 
         return reshaped_calc_mask(mask, score_override, *args, **kwargs)
