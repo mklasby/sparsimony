@@ -8,7 +8,7 @@ from sparsimony.mask_calculators.base import (
     FineGrainedPruner,
     FineGrainedGrower,
 )
-from sparsimony.utils import view_tensors_as_neurons
+from sparsimony.utils import view_tensors_as, view_tensors_as_neurons
 
 
 class FFIRandomPruner(FineGrainedPruner, RandomPruner):
@@ -81,3 +81,69 @@ class FFIGradientGrower(FineGrainedGrower, GradientGrower):
         return super().calculate_mask(
             sparsity, mask, score_override, *args, **kwargs
         )
+
+
+class NMMagnitudePruner(FineGrainedPruner, MagnitudePruner):
+
+    def __init__(
+        self,
+        n: int,
+        m: int,
+        pad: bool = False,
+        padding_dim: int = 1,
+    ):
+        self.n = n
+        self.m = m
+        self.pad = pad
+        self.padding_dim = padding_dim
+        self._TILE_VIEW = (-1, self.m)
+
+    def calculate_mask(
+        self,
+        mask: torch.Tensor,
+        score_override: torch.Tensor | None = None,
+        *args,
+        **kwargs
+    ) -> torch.Tensor:
+        func = super().calculate_mask
+
+        @view_tensors_as(self._TILE_VIEW, self.pad, self.padding_dim)
+        def reshaped_calc_mask(mask, score_override, *args, **kwargs):
+            sparsity = self.n / self.m
+
+            return func(sparsity, mask, score_override, *args, **kwargs)
+
+        return reshaped_calc_mask(mask, score_override, *args, **kwargs)
+
+
+class NMGradientGrower(FineGrainedGrower, GradientGrower):
+
+    def __init__(
+        self,
+        n: int,
+        m: int,
+        pad: bool = False,
+        padding_dim: int = 1,
+    ):
+        self.n = n
+        self.m = m
+        self.pad = pad
+        self.padding_dim = padding_dim
+        self._TILE_VIEW = (-1, self.m)
+
+    def calculate_mask(
+        self,
+        mask: torch.Tensor,
+        score_override: torch.Tensor | None = None,
+        *args,
+        **kwargs
+    ) -> torch.Tensor:
+        func = super().calculate_mask
+
+        @view_tensors_as(self._TILE_VIEW, self.pad, self.padding_dim)
+        def reshaped_calc_mask(mask, score_override, *args, **kwargs):
+            sparsity = self.n / self.m
+
+            return func(sparsity, mask, score_override, *args, **kwargs)
+
+        return reshaped_calc_mask(mask, score_override, *args, **kwargs)

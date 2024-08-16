@@ -56,6 +56,7 @@ class BasePruner(BaseMaskCalculator):
             int: The number of elements to be dropped from a mask
                 tensor given a target sparsity
         """
+
         n_drop = math.ceil(
             mask.sum(dtype=torch.int) - ((1 - sparsity) * mask.numel())
         )
@@ -90,7 +91,10 @@ class FineGrainedPruner(BasePruner):
         mask_slice = mask[candidate_tiles]
         n_ones_per_tile_target = calculate_per_tile_n_ones(mask_slice, sparsity)
         n_drop_per_tile = torch.tensor(
-            [n.sum().item() - n_ones_per_tile_target for n in mask_slice],
+            [
+                n.sum(dtype=torch.int).item() - n_ones_per_tile_target
+                for n in mask_slice
+            ],
             dtype=torch.int,
         )
         if not (n_drop_per_tile >= 0).all():
