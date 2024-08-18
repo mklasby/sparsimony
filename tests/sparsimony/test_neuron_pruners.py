@@ -64,7 +64,6 @@ def weights(mask):
 
 def test_neuron_random(mask, prune_ratio):
     # Call the method to be tested
-    orig_n_ones = mask.sum()
     sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
     pruned_mask = NeuronRandomPruner.calculate_mask(sparsity, mask)
 
@@ -74,13 +73,11 @@ def test_neuron_random(mask, prune_ratio):
     # Calculate the expected number of non-zero elements after pruning
     # Total elements minus number of zero elements.
     neuron_view_mask = mask.reshape(-1, math.prod(mask.shape[1:]))
-    n_zeros = (mask.numel() - orig_n_ones) + math.ceil(
-        prune_ratio * orig_n_ones
-    )
-    tiles_to_drop = math.ceil(n_zeros / neuron_view_mask.shape[1])
-    expected_nonzero = mask.numel() - tiles_to_drop * neuron_view_mask.shape[1]
+    nnz_el_target = math.floor(mask.numel() * (1 - sparsity))
+    nnz_tiles = math.floor(nnz_el_target / neuron_view_mask.shape[-1])
+    expected_nonzero = nnz_tiles * neuron_view_mask.shape[-1]
     assert (
-        torch.count_nonzero(neuron_view_mask, dim=1) == 0
-    ).sum() == tiles_to_drop
+        torch.count_nonzero(neuron_view_mask, dim=1) != 0
+    ).sum() == nnz_tiles
     max_n_ones = math.ceil(mask.numel() * (1 - sparsity))
     assert expected_nonzero <= max_n_ones
