@@ -128,7 +128,6 @@ class FineGrainedPruner(BasePruner):
                     f"n_drop_per_tile == {k} for all tiles, skipping this "
                     "pruner."
                 )
-                mask[candidate_tiles] = mask_slice
                 return mask
             _, indices = torch.topk(scores, k=k, largest=False)
             mask_slice = mask_slice.scatter(
@@ -360,7 +359,6 @@ class FineGrainedGrower(BaseGrower):
                     f"n_grow_per_tile == {k} for all tiles, skipping this "
                     "grower."
                 )
-                mask[candidate_tiles] = mask
                 return mask
             _, indices = torch.topk(
                 scores, k=n_grow_per_tile.unique().item(), largest=True
