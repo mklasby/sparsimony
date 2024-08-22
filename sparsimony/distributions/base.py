@@ -90,7 +90,7 @@ class UniformDistribution(BaseDistribution):
             return self._cache_loader(sparsity, groups)
         dense_el, sparse_el, num_el = 0, 0, 0
         keep_dense = []
-        for layer_idx, layer_config in groups:
+        for layer_idx, layer_config in enumerate(groups):
             if self._should_exclude(
                 layer_config["module"],
                 layer_config["module_fqn"],
