@@ -35,7 +35,13 @@ class BaseDistribution(ABC):
         self, sparsity: float, groups: List[Dict[str, Any]], *args, **kwargs
     ) -> List[Dict[str, Any]]: ...
 
-    def _should_exclude(self, mod: nn.Module, name: str) -> bool:
+    def _should_exclude(
+        self, mod: nn.Module, name: str, layer_id: int, group_len: int
+    ) -> bool:
+        if layer_id == 0 and self.skip_first_layer:
+            return True
+        if layer_id == (group_len - 1) and self.skip_last_layer:
+            return True
         if type(mod) in self.excluded_types:
             return True
         for pattern in self.excluded_mod_name_regexs:
@@ -84,9 +90,12 @@ class UniformDistribution(BaseDistribution):
             return self._cache_loader(sparsity, groups)
         dense_el, sparse_el, num_el = 0, 0, 0
         keep_dense = []
-        for layer_config in groups:
+        for layer_idx, layer_config in groups:
             if self._should_exclude(
-                layer_config["module"], layer_config["module_fqn"]
+                layer_config["module"],
+                layer_config["module_fqn"],
+                layer_idx,
+                len(groups),
             ):
                 keep_dense.append(True)
             else:
@@ -145,7 +154,10 @@ class ERKDistribution(BaseDistribution):
 
         for layer_idx, layer_config in enumerate(groups):
             if self._should_exclude(
-                layer_config["module"], layer_config["module_fqn"]
+                layer_config["module"],
+                layer_config["module_fqn"],
+                layer_idx,
+                len(groups),
             ):
                 dense_layers.add(layer_idx)
 
