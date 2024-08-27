@@ -91,9 +91,11 @@ class BaseDistribution(ABC):
         n_dense = 0
         n_params = 0
         num_sparse_layers = 0
-        for config in groups:
+        for layer_idx, config in enumerate(groups):
             weights = get_original_tensor(**config)
-            if self._should_exclude(config["module"], config["module_fqn"]):
+            if self._should_exclude(
+                config["module"], config["module_fqn"], layer_idx, len(groups)
+            ):
                 n_dense += weights.numel()
             else:
                 n_sparse += weights.numel()
@@ -130,9 +132,12 @@ class UniformDistribution(BaseDistribution):
         if sparsity in self._cache:
             return self._cache_loader(sparsity, groups)
         if not self.include_excluded_modules_in_param_count:
-            for layer_config in groups:
+            for layer_idx, layer_config in enumerate(groups):
                 if self._should_exclude(
-                    layer_config["module"], layer_config["module_fqn"]
+                    layer_config["module"],
+                    layer_config["module_fqn"],
+                    layer_idx,
+                    len(groups),
                 ):
                     layer_config["sparsity"] = 0
                 else:
