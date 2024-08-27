@@ -84,19 +84,20 @@ class FFIGradientGrower(FineGrainedGrower, GradientGrower):
         )
 
 
-class NMMagnitudePruner(FineGrainedPruner, MagnitudePruner):
-
+class NMCalculatorBase:
     def __init__(
         self,
         n: int,
         m: int,
         pad: bool = False,
         padding_dim: int = 1,
+        permute_conv_to_nhwc: bool = True,
     ):
         self.n = n
         self.m = m
         self.pad = pad
         self.padding_dim = padding_dim
+        self.permute_conv_to_nhwc = permute_conv_to_nhwc
         self._TILE_VIEW = (-1, self.m)
 
     def calculate_mask(
@@ -107,14 +108,21 @@ class NMMagnitudePruner(FineGrainedPruner, MagnitudePruner):
         *args,
         **kwargs,
     ) -> torch.Tensor:
+        # Will take calculate_mask from next class in MRO. Order of inheritance
+        # matters for descendants of this class
+        func = super().calculate_mask
         if sparsity is not None:
             self._logger.warning(
                 f"Sparsity value of {sparsity} passed to N:M calculator, will "
                 f"be ignored and calculated for {self.n}:{self.m} instead"
             )
-        func = super().calculate_mask
 
-        @view_tensors_as(self._TILE_VIEW, self.pad, self.padding_dim)
+        @view_tensors_as(
+            self._TILE_VIEW,
+            self.pad,
+            self.padding_dim,
+            self.permute_conv_to_nhwc,
+        )
         def reshaped_calc_mask(mask, score_override, *args, **kwargs):
             sparsity = 1 - (self.n / self.m)
 
@@ -130,7 +138,7 @@ class NMMagnitudePruner(FineGrainedPruner, MagnitudePruner):
         return reshaped_calc_mask(mask, score_override, *args, **kwargs)
 
 
-class NMGradientGrower(FineGrainedGrower, GradientGrower):
+class NMMagnitudePruner(NMCalculatorBase, FineGrainedPruner, MagnitudePruner):
 
     def __init__(
         self,
@@ -138,39 +146,112 @@ class NMGradientGrower(FineGrainedGrower, GradientGrower):
         m: int,
         pad: bool = False,
         padding_dim: int = 1,
-    ):
-        self.n = n
-        self.m = m
-        self.pad = pad
-        self.padding_dim = padding_dim
-        self._TILE_VIEW = (-1, self.m)
-
-    def calculate_mask(
-        self,
-        mask: torch.Tensor,
-        score_override: torch.Tensor | None = None,
-        sparsity: Any | None = None,
+        permute_conv_to_nhwc: bool = True,
         *args,
         **kwargs,
-    ) -> torch.Tensor:
-        func = super().calculate_mask
-        if sparsity is not None:
-            self._logger.warning(
-                f"Sparsity value of {sparsity} passed to N:M calculator, will "
-                f"be ignored and calculated for {self.n}:{self.m} instead"
-            )
+    ):
+        super().__init__(n, m, pad, padding_dim, permute_conv_to_nhwc)
 
-        @view_tensors_as(self._TILE_VIEW, self.pad, self.padding_dim)
-        def reshaped_calc_mask(mask, score_override, *args, **kwargs):
-            sparsity = 1 - (self.n / self.m)
+    # def calculate_mask(
+    #     self,
+    #     mask: torch.Tensor,
+    #     score_override: torch.Tensor | None = None,
+    #     sparsity: Any | None = None,
+    #     *args,
+    #     **kwargs,
+    # ) -> torch.Tensor:
+    #     if sparsity is not None:
+    #         self._logger.warning(
+    #             f"Sparsity value of {sparsity} passed to N:M calculator, will "  # noqa
+    #             f"be ignored and calculated for {self.n}:{self.m} instead"
+    #         )
+    #     func = super().calculate_mask
 
-            return func(
-                sparsity,
-                mask,
-                score_override,
-                n_ones_per_tile_target=self.n,
-                *args,
-                **kwargs,
-            )
+    #     @view_tensors_as(
+    #         self._TILE_VIEW,
+    #         self.pad,
+    #         self.padding_dim,
+    #         self.permute_conv_to_nhwc,
+    #     )
+    #     def reshaped_calc_mask(mask, score_override, *args, **kwargs):
+    #         sparsity = 1 - (self.n / self.m)
 
-        return reshaped_calc_mask(mask, score_override, *args, **kwargs)
+    #         return func(
+    #             sparsity,
+    #             mask,
+    #             score_override,
+    #             n_ones_per_tile_target=self.n,
+    #             *args,
+    #             **kwargs,
+    #         )
+
+    #     return reshaped_calc_mask(mask, score_override, *args, **kwargs)
+
+
+class NMGradientGrower(NMCalculatorBase, FineGrainedGrower, GradientGrower):
+
+    def __init__(
+        self,
+        n: int,
+        m: int,
+        pad: bool = False,
+        padding_dim: int = 1,
+        permute_conv_to_nhwc: bool = True,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            n, m, pad, padding_dim, permute_conv_to_nhwc, *args, **kwargs
+        )
+
+    # def calculate_mask(
+    #     self,
+    #     mask: torch.Tensor,
+    #     score_override: torch.Tensor | None = None,
+    #     sparsity: Any | None = None,
+    #     *args,
+    #     **kwargs,
+    # ) -> torch.Tensor:
+    #     func = super().calculate_mask
+    #     if sparsity is not None:
+    #         self._logger.warning(
+    #             f"Sparsity value of {sparsity} passed to N:M calculator, will "  # noqa
+    #             f"be ignored and calculated for {self.n}:{self.m} instead"
+    #         )
+
+    #     @view_tensors_as(
+    #         self._TILE_VIEW,
+    #         self.pad,
+    #         self.padding_dim,
+    #         self.permute_conv_to_nhwc,
+    #     )
+    #     def reshaped_calc_mask(mask, score_override, *args, **kwargs):
+    #         sparsity = 1 - (self.n / self.m)
+
+    #         return func(
+    #             sparsity,
+    #             mask,
+    #             score_override,
+    #             n_ones_per_tile_target=self.n,
+    #             *args,
+    #             **kwargs,
+    #         )
+
+    #     return reshaped_calc_mask(mask, score_override, *args, **kwargs)
+
+
+class NMRandomGrower(NMCalculatorBase, FineGrainedGrower, RandomGrower):
+
+    def __init__(
+        self,
+        n: int,
+        m: int,
+        pad: bool = False,
+        padding_dim: int = 1,
+        permute_conv_to_nhwc: bool = True,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(
+            n, m, pad, padding_dim, permute_conv_to_nhwc, *args, **kwargs
+        )
