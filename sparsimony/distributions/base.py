@@ -55,10 +55,6 @@ class BaseDistribution(ABC):
             layer_config["module"], layer_config["tensor_name"]
         ).numel()
 
-    def _validate(self, sparsity) -> None:
-        if sparsity > 1:
-            raise ValueError(f"Adjusted sparsity > 1 in {self.__name__}")
-
     def _cache_loader(self, sparsity: float, groups: List[Dict[str, Any]]):
         if sparsity in self._cache:
             for config, cached_sparsity in list(
@@ -74,6 +70,18 @@ class BaseDistribution(ABC):
             f"skip_last_layer={self.skip_last_layer}\n"
             f"excluded_types={self.excluded_types}\n"
             f"excluded_mod_name_regex={self.excluded_mod_name_regexs}"
+        )
+
+    def _raise_invalid_dist_exception(
+        self, sparsity: float, groups: List[Dict[str, Any]]
+    ) -> None:
+        raise InvalidSparseDistribution(
+            f"{self.__class__.__name__} cannot find a valid sparse distribution"
+            f" with sparsity={sparsity} and distribution parameters: {self}\n"
+            "The maximum possible sparsity with this configuration is "
+            f"{self._calculate_max_valid_sparsity(groups):.4f}\n"
+            "Alternatively, try using UniformDistribution with "
+            "include_excluded_modules_in_param_count = False"
         )
 
     def _calculate_max_valid_sparsity(
@@ -104,6 +112,7 @@ class UniformDistribution(BaseDistribution):
         skip_last_layer: bool = False,
         excluded_types: Optional[List[type]] = None,
         excluded_mod_name_regexs: Optional[List[type]] = None,
+        include_excluded_modules_in_param_count: bool = True,
     ):
         super().__init__(
             skip_first_layer,
@@ -111,12 +120,24 @@ class UniformDistribution(BaseDistribution):
             excluded_types,
             excluded_mod_name_regexs,
         )
+        self.include_excluded_modules_in_param_count = (
+            include_excluded_modules_in_param_count
+        )
 
     def __call__(
         self, sparsity: float, groups: List[Dict[str, Any]], *args, **kwargs
     ) -> List[Dict[str, Any]]:
         if sparsity in self._cache:
             return self._cache_loader(sparsity, groups)
+        if not self.include_excluded_modules_in_param_count:
+            for layer_config in groups:
+                if self._should_exclude(
+                    layer_config["module"], layer_config["module_fqn"]
+                ):
+                    layer_config["sparsity"] = 0
+                else:
+                    layer_config["sparsity"] = sparsity
+            return groups
         dense_el, sparse_el, num_el = 0, 0, 0
         keep_dense = []
         for layer_idx, layer_config in enumerate(groups):
@@ -135,8 +156,9 @@ class UniformDistribution(BaseDistribution):
             else:
                 sparse_el += layer_el
             num_el += layer_el
-        adj_sparsity = ((sparsity * num_el) - dense_el) / sparse_el
-        self._validate(adj_sparsity)
+        adj_sparsity = 1 - (sparse_el - (sparsity * num_el)) / sparse_el
+        if adj_sparsity >= 1:
+            self._raise_invalid_dist_exception(sparsity, groups)
 
         for dense, layer_config in list(zip(keep_dense, groups)):
             layer_config["sparsity"] = adj_sparsity if not dense else 0
@@ -211,13 +233,6 @@ class ERKDistribution(BaseDistribution):
                     ) ** self.erk_power_scale
                     raw_probabilities[layer_idx] = raw_prob
                     divisor += raw_probabilities[layer_idx] * n_params
-            if rhs <= 0:
-                raise RuntimeError(
-                    "ERK cannot find a valid sparse distribution with "
-                    f"sparsity={sparsity} and distribution parameters: {self}\n"
-                    "The maximum possible sparsity with this configuration is "
-                    f"{self._calculate_max_valid_sparsity(groups):.4f}"
-                )
             eps = rhs / divisor
             max_prob = np.max(list(raw_probabilities.values()))
             max_prob_eps = max_prob * eps
@@ -239,6 +254,12 @@ class ERKDistribution(BaseDistribution):
                 layer_sparsity = 0.0
             else:
                 layer_sparsity = 1 - (eps * raw_probabilities[layer_idx])
+                if layer_sparsity >= 1:
+                    self._raise_invalid_dist_exception(sparsity, groups)
             layer_config["sparsity"] = layer_sparsity
             self._cache[sparsity].append(layer_sparsity)
         return groups
+
+
+class InvalidSparseDistribution(Exception):
+    pass
