@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List, Optional
 import re
+import math
 import logging
 import numpy as np
 import torch.nn as nn
@@ -66,6 +67,34 @@ class BaseDistribution(ABC):
                 config["sparsity"] = cached_sparsity
             return groups
         return None
+
+    def __str__(self):
+        return (
+            f"skip_first_layer={self.skip_first_layer}\n"
+            f"skip_last_layer={self.skip_last_layer}\n"
+            f"excluded_types={self.excluded_types}\n"
+            f"excluded_mod_name_regex={self.excluded_mod_name_regexs}"
+        )
+
+    def _calculate_max_valid_sparsity(
+        self, groups: List[Dict[str, Any]]
+    ) -> float:
+        n_sparse = 0
+        n_dense = 0
+        n_params = 0
+        num_sparse_layers = 0
+        for config in groups:
+            weights = get_original_tensor(**config)
+            if self._should_exclude(config["module"], config["module_fqn"]):
+                n_dense += weights.numel()
+            else:
+                n_sparse += weights.numel()
+                num_sparse_layers += 1
+            n_params += weights.numel()
+        return (
+            math.floor(((n_sparse - num_sparse_layers) / n_params) * 10000)
+            / 10000
+        )
 
 
 class UniformDistribution(BaseDistribution):
@@ -173,7 +202,6 @@ class ERKDistribution(BaseDistribution):
                 n_ones = int(n_params * (1 - sparsity))
 
                 if layer_idx in dense_layers:
-                    # dense_layers.add(layer_idx)
                     rhs -= n_zeros
                 else:
                     n_ones = n_params - n_zeros
@@ -183,6 +211,13 @@ class ERKDistribution(BaseDistribution):
                     ) ** self.erk_power_scale
                     raw_probabilities[layer_idx] = raw_prob
                     divisor += raw_probabilities[layer_idx] * n_params
+            if rhs <= 0:
+                raise RuntimeError(
+                    "ERK cannot find a valid sparse distribution with "
+                    f"sparsity={sparsity} and distribution parameters: {self}\n"
+                    "The maximum possible sparsity with this configuration is "
+                    f"{self._calculate_max_valid_sparsity(groups):.4f}"
+                )
             eps = rhs / divisor
             max_prob = np.max(list(raw_probabilities.values()))
             max_prob_eps = max_prob * eps
