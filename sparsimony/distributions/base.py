@@ -37,7 +37,12 @@ class BaseDistribution(ABC):
     ) -> List[Dict[str, Any]]: ...
 
     def _should_exclude(
-        self, mod: nn.Module, name: str, layer_id: int, group_len: int
+        self,
+        mod: nn.Module,
+        name: str,
+        layer_id: int,
+        group_len: int,
+        tensor_name: str,
     ) -> bool:
         if layer_id == 0 and self.skip_first_layer:
             return True
@@ -94,7 +99,11 @@ class BaseDistribution(ABC):
         for layer_idx, config in enumerate(groups):
             weights = get_original_tensor(**config)
             if self._should_exclude(
-                config["module"], config["module_fqn"], layer_idx, len(groups)
+                config["module"],
+                config["module_fqn"],
+                layer_idx,
+                len(groups),
+                config["tensor_name"],
             ):
                 n_dense += weights.numel()
             else:
@@ -138,6 +147,7 @@ class UniformDistribution(BaseDistribution):
                     layer_config["module_fqn"],
                     layer_idx,
                     len(groups),
+                    layer_config["tensor_name"],
                 ):
                     layer_config["sparsity"] = 0
                 else:
@@ -151,6 +161,7 @@ class UniformDistribution(BaseDistribution):
                 layer_config["module_fqn"],
                 layer_idx,
                 len(groups),
+                layer_config["tensor_name"],
             ):
                 keep_dense.append(True)
             else:
@@ -214,6 +225,7 @@ class ERKDistribution(BaseDistribution):
                 layer_config["module_fqn"],
                 layer_idx,
                 len(groups),
+                layer_config["tensor_name"],
             ):
                 dense_layers.add(layer_idx)
 
@@ -268,3 +280,36 @@ class ERKDistribution(BaseDistribution):
 
 class InvalidSparseDistribution(Exception):
     pass
+
+
+class UniformNMDistribution(UniformDistribution):
+    def __init__(
+        self,
+        skip_first_layer: bool = False,
+        skip_last_layer: bool = False,
+        excluded_types: Optional[List[type]] = None,
+        excluded_mod_name_regexs: Optional[List[type]] = None,
+    ):
+        super().__init__(
+            skip_first_layer,
+            skip_last_layer,
+            excluded_types,
+            excluded_mod_name_regexs,
+            include_excluded_modules_in_param_count=False,
+        )
+
+    def _should_exclude(
+        self,
+        mod: nn.Module,
+        name: str,
+        layer_id: int,
+        group_len: int,
+        tensor_name: str,
+    ) -> bool:
+        t = getattr(mod, tensor_name)
+        if len(t.shape) == 4:  # conv
+            if t.shape[1] % 4 != 0:
+                return True
+        return super()._should_exclude(
+            mod, name, layer_id, group_len, tensor_name
+        )

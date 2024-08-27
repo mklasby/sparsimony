@@ -111,9 +111,10 @@ def transform_args_kwargs_tensors(
 
 @torch.no_grad()
 def view_tensors_as(
-    size: Tuple[int],
+    size: Tuple[int] | int,
     pad: bool = False,
     padding_dim: int = 1,
+    permute_conv_to_nhwc: bool = True,
 ) -> Callable:
     pad_value = float("nan")
     if not isinstance(size, Tuple):
@@ -123,6 +124,7 @@ def view_tensors_as(
         @functools.wraps(fn)
         def wrapped_fn(*args, **kwargs) -> torch.Tensor:
             original_size = get_original_tensor_size(*args, **kwargs)
+            _permuted = False
             if pad:
                 op = functools.partial(
                     pad_tensor_to_tile_view,
@@ -133,9 +135,21 @@ def view_tensors_as(
                 args, kwargs = transform_args_kwargs_tensors(
                     op, *args, **kwargs
                 )
-            op = functools.partial(torch.Tensor.view, size=size)
+            if permute_conv_to_nhwc and len(original_size) == 4:
+                # conv
+                _permuted = True
+                op = functools.partial(torch.permute, dims=(0, 2, 3, 1))
+                args, kwargs = transform_args_kwargs_tensors(
+                    op, *args, **kwargs
+                )
+                permuted_shape = get_original_tensor_size(*args, **kwargs)
+                op = functools.partial(torch.Tensor.reshape, shape=size)
+            else:
+                op = functools.partial(torch.Tensor.view, size=size)
             args, kwargs = transform_args_kwargs_tensors(op, *args, **kwargs)
             out = fn(*args, **kwargs)
+            if _permuted:
+                out = out.view(permuted_shape).permute(0, 3, 1, 2).contiguous()
             if pad:
                 out = out.view(-1)
                 indx = torch.argwhere(~torch.isnan(out))[:, 0]
@@ -152,6 +166,7 @@ def view_tensors_as_neurons(fn: Callable) -> Callable:
     @functools.wraps(fn)
     def wrapped_fn(*args, **kwargs) -> torch.Tensor:
         original_size = get_original_tensor_size(*args, **kwargs)
+        _permuted = False
         if len(original_size) == 2:
             # linear and friends
             op = functools.partial(
@@ -163,9 +178,13 @@ def view_tensors_as_neurons(fn: Callable) -> Callable:
             )
         elif len(original_size) == 4:
             # conv
+            _permuted = True
+            op = functools.partial(torch.permute, dims=(0, 2, 3, 1))
+            args, kwargs = transform_args_kwargs_tensors(op, *args, **kwargs)
+            permuted_shape = get_original_tensor_size(*args, **kwargs)
             op = functools.partial(
-                torch.Tensor.view,
-                size=(
+                torch.Tensor.reshape,  # Must reshape after permutation
+                shape=(
                     -1,
                     prod(original_size[1:]),
                 ),
@@ -175,8 +194,18 @@ def view_tensors_as_neurons(fn: Callable) -> Callable:
                 "Sparsimony currently only support parameterized tensors of dim"
                 " 2 or 4"
             )
+        # Reshaping
         args, kwargs = transform_args_kwargs_tensors(op, *args, **kwargs)
-        return fn(*args, **kwargs).reshape(original_size)
+        if not _permuted:
+            return fn(*args, **kwargs).reshape(original_size)
+        else:
+            return_val = fn(*args, **kwargs)
+            return (
+                return_val.view(permuted_shape)
+                .permute(dims=(0, 3, 1, 2))
+                .reshape(original_size)
+                .contiguous()
+            )
 
     return wrapped_fn
 
