@@ -69,7 +69,7 @@ def test_neuron_random(mask, prune_ratio):
 
     # Assertions
     assert pruned_mask.shape == mask.shape
-
+    mask.data = pruned_mask
     # Calculate the expected number of non-zero elements after pruning
     # Total elements minus number of zero elements.
     neuron_view_mask = mask.reshape(-1, math.prod(mask.shape[1:]))
