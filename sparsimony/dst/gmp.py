@@ -44,7 +44,7 @@ class GMP(DSTMixin, BaseSparsifier):
         weights: torch.Tensor,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            sparsity, mask, weights
+            sparsity, mask, weights=weights
         )
         return mask
 
@@ -85,7 +85,7 @@ class GMP(DSTMixin, BaseSparsifier):
             mask = get_mask(config["module"], config["tensor_name"])
             weights = weights = getattr(config["module"], config["tensor_name"])
             mask.data = UnstructuredMagnitudePruner.calculate_mask(
-                config["sparsity"], mask, weights
+                config["sparsity"], mask, weights=weights
             )
 
     def update_mask(
