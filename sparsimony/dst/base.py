@@ -202,7 +202,8 @@ class DSTMixin(ABC):
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
         n_ones = mask.sum()
         actual_n_ones = int(mask.numel() * (1 - sparsity_level))
-        if n_ones != actual_n_ones:
+        # We ignore off-by-one errors as these will be due to floor ops
+        if n_ones != actual_n_ones and abs(n_ones - actual_n_ones) > 1:
             # With very large mask tensors, we may have some precision errors
             # with exact n_ones. Therefore, we simply log the warning instead of
             # raising.

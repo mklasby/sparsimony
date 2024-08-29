@@ -103,17 +103,6 @@ class GMP(DSTMixin, BaseSparsifier):
             self.prune_mask(sparsity, mask, weights)
             self._assert_sparsity_level(mask, sparsity)
 
-    def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
-        n_ones = mask.sum()
-        actual_n_ones = int(mask.numel() * (1 - sparsity_level))
-        if n_ones != actual_n_ones and abs(n_ones - actual_n_ones) > 1:
-            # With very large mask tensors, we may have some prec ision errors
-            # with exact n_ones. Therefore, we simply log the warning instead of
-            # raising.
-            self._logger.warning(
-                f"n_ones actual{n_ones} != n_one target {actual_n_ones}"
-            )
-
     def _global_step(self) -> None:
         global_data_helper = GlobalPruningDataHelper(self.groups)
         self.prune_mask(
