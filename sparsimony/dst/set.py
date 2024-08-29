@@ -12,13 +12,6 @@ from sparsimony.mask_calculators import (
     UnstructuredRandomGrower,
 )
 
-"""        "module_fqn": module_fqn,
-        "module": module,
-        "tensor_name": tensor_name,
-        "tensor_fqn": tensor_fqn,
-
-"""
-
 
 class SET(DSTMixin, BaseSparsifier):
 
@@ -52,7 +45,7 @@ class SET(DSTMixin, BaseSparsifier):
         **kwargs,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            sparsity, mask, weights
+            sparsity, mask, weights=weights
         )
         return mask
 

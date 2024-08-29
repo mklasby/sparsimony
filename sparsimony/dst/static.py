@@ -56,7 +56,7 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
         **kwargs,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            target_sparsity, mask, weights
+            target_sparsity, mask, weights=weights
         )
         return mask
 
