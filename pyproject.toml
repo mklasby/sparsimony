@@ -56,10 +56,10 @@ exclude ='''
 
 [tool.pytest.ini_options]
 pythonpath = [
-    ".", "./src", "./tests"
+    ".", "./sparsimony", "./tests"
 ]
-# addopts = "--cov src --cov-report html --cov-branch --import-mode importlib"
-addopts = "--import-mode importlib"
+addopts = "--cov ./sparsimony --cov-report html --cov-branch --import-mode importlib"
+# addopts = "--import-mode importlib"
 markers = [
     "integration",
     "slow",
