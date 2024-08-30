@@ -152,41 +152,6 @@ class NMMagnitudePruner(NMCalculatorBase, FineGrainedPruner, MagnitudePruner):
     ):
         super().__init__(n, m, pad, padding_dim, permute_conv_to_nhwc)
 
-    # def calculate_mask(
-    #     self,
-    #     mask: torch.Tensor,
-    #     score_override: torch.Tensor | None = None,
-    #     sparsity: Any | None = None,
-    #     *args,
-    #     **kwargs,
-    # ) -> torch.Tensor:
-    #     if sparsity is not None:
-    #         self._logger.warning(
-    #             f"Sparsity value of {sparsity} passed to N:M calculator, will "  # noqa
-    #             f"be ignored and calculated for {self.n}:{self.m} instead"
-    #         )
-    #     func = super().calculate_mask
-
-    #     @view_tensors_as(
-    #         self._TILE_VIEW,
-    #         self.pad,
-    #         self.padding_dim,
-    #         self.permute_conv_to_nhwc,
-    #     )
-    #     def reshaped_calc_mask(mask, score_override, *args, **kwargs):
-    #         sparsity = 1 - (self.n / self.m)
-
-    #         return func(
-    #             sparsity,
-    #             mask,
-    #             score_override,
-    #             n_ones_per_tile_target=self.n,
-    #             *args,
-    #             **kwargs,
-    #         )
-
-    #     return reshaped_calc_mask(mask, score_override, *args, **kwargs)
-
 
 class NMGradientGrower(NMCalculatorBase, FineGrainedGrower, GradientGrower):
 
@@ -203,41 +168,6 @@ class NMGradientGrower(NMCalculatorBase, FineGrainedGrower, GradientGrower):
         super().__init__(
             n, m, pad, padding_dim, permute_conv_to_nhwc, *args, **kwargs
         )
-
-    # def calculate_mask(
-    #     self,
-    #     mask: torch.Tensor,
-    #     score_override: torch.Tensor | None = None,
-    #     sparsity: Any | None = None,
-    #     *args,
-    #     **kwargs,
-    # ) -> torch.Tensor:
-    #     func = super().calculate_mask
-    #     if sparsity is not None:
-    #         self._logger.warning(
-    #             f"Sparsity value of {sparsity} passed to N:M calculator, will "  # noqa
-    #             f"be ignored and calculated for {self.n}:{self.m} instead"
-    #         )
-
-    #     @view_tensors_as(
-    #         self._TILE_VIEW,
-    #         self.pad,
-    #         self.padding_dim,
-    #         self.permute_conv_to_nhwc,
-    #     )
-    #     def reshaped_calc_mask(mask, score_override, *args, **kwargs):
-    #         sparsity = 1 - (self.n / self.m)
-
-    #         return func(
-    #             sparsity,
-    #             mask,
-    #             score_override,
-    #             n_ones_per_tile_target=self.n,
-    #             *args,
-    #             **kwargs,
-    #         )
-
-    #     return reshaped_calc_mask(mask, score_override, *args, **kwargs)
 
 
 class NMRandomGrower(NMCalculatorBase, FineGrainedGrower, RandomGrower):
