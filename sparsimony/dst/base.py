@@ -324,17 +324,24 @@ class DSTMixin(ABC):
     def _global_init_prune(self) -> None:
         global_data_helper = GlobalPruningDataHelper(self.groups)
         if self.random_mask_init:
-            global_data_helper.masks.data = (
-                UnstructuredRandomPruner.calculate_mask(
-                    self.sparsity, global_data_helper.masks
-                )
+            cpu_mask = global_data_helper.masks.cpu()
+            calc_cpu_mask = UnstructuredRandomPruner.calculate_mask(
+                self.sparsity, cpu_mask
+            )
+            global_data_helper.masks.data = calc_cpu_mask.to(
+                global_data_helper.masks.device
             )
         else:
             # use pruning criterion
+            cpu_mask = global_data_helper.masks.cpu()
+            cpu_sparse_weights = global_data_helper.sparse_weights.cpu()
             self.prune_mask(
                 self.sparsity,
-                global_data_helper.masks,
-                global_data_helper.sparse_weights,
+                cpu_mask,
+                cpu_sparse_weights,
+            )
+            global_data_helper.masks.data = cpu_mask.to(
+                global_data_helper.masks.device
             )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()
