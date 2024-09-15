@@ -6,3 +6,4 @@ authors:
 title: Sparsimony - Dynamic sparse training and pruning algorithms for PyTorch
 version: 0.2
 date-released: "2024-09-15"
+url: "https://github.com/mklasby/sparsimony"
