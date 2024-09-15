@@ -323,9 +323,9 @@ class FineGrainedGrower(BaseGrower):
             )
         n_grow_per_tile = (
             n_ones_per_tile_target
-            - torch.count_nonzero(mask_slice, dim=-1)
+            - mask_slice.sum(dim=-1)
             + torch.isnan(mask_slice).sum(dim=-1)
-        )
+        ).type(torch.int)
         n_grow_per_tile = torch.where(
             n_grow_per_tile > (mask_slice == 0).sum(dim=-1),
             (mask_slice == 0).sum(dim=-1),
