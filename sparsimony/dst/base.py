@@ -150,9 +150,9 @@ class DSTMixin(ABC):
             except AssertionError:
                 self._logger.debug(
                     "Assertion checks failed on newly initialized values!\n"
-                    f"Found {(unequal_elements[mask == 1]==False).sum().item()}"
+                    f"Found {(unequal_elements[mask == 1]==False).sum(dtype=torch.int).item()}"  # noqa
                     " values that had the same value after reinit and "
-                    f"{(unequal_elements[mask==0].any()==True).sum().item()}"
+                    f"{(unequal_elements[mask==0].any()==True).sum(dtype=torch.int).item()}"  # noqa
                     f" reinit masked values in layer: {config['tensor_fqn']}."
                 )
 
@@ -179,7 +179,7 @@ class DSTMixin(ABC):
             self._broadcast_tensor(mask)
 
     def calculate_mask_sparsity(self, mask: torch.Tensor):
-        return 1 - (mask.sum() / mask.numel())
+        return 1 - (mask.sum(dtype=torch.int) / mask.numel())
 
     def calculate_global_sparsity(self):
         total_el = 0
@@ -187,7 +187,7 @@ class DSTMixin(ABC):
         for config in self.groups:
             mask = get_mask(config["module"], config["tensor_name"])
             total_el += mask.numel()
-            nnz_el += mask.sum()
+            nnz_el += mask.sum(dtype=torch.int)
         return 1 - (nnz_el / total_el)
 
     @classmethod
@@ -274,7 +274,9 @@ class DSTMixin(ABC):
                     self.calculate_mask_sparsity(mask).item()
                 )
                 active_neurons.append(
-                    torch.vmap(neuron_is_active)(mask).sum().item()
+                    torch.vmap(neuron_is_active)(mask)
+                    .sum(dtype=torch.int)
+                    .item()
                 )
                 total_neurons.append(len(mask))
             active_vs_total_neurons = []
@@ -357,7 +359,9 @@ class DSTMixin(ABC):
         for config in self.groups:
             mask = get_mask(**config)
             mask_flat = mask.view(mask.shape[0], -1)
-            active_neurons += (mask_flat.sum(dim=-1) != 0).sum()
+            active_neurons += mask_flat.sum(
+                dim=-1, dtype=torch.int
+            ).count_nonzero()
             total_neurons += mask_flat.shape[0]
         return active_neurons / total_neurons
 

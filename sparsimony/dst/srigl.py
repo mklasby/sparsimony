@@ -214,7 +214,7 @@ class SRigL(DSTMixin, BaseSparsifier):
             self._assert_ffi(mask, tensor_fqn)
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
-        n_ones = mask.sum()
+        n_ones = mask.sum(dtype=torch.int)
         actual_n_ones = int(mask.numel() * (1 - sparsity_level))
         if n_ones != actual_n_ones:
             # With very large mask tensors, we may have some precision errors
@@ -226,7 +226,7 @@ class SRigL(DSTMixin, BaseSparsifier):
             self._logger.debug(
                 f"n_ones actual{n_ones} != n_one target {actual_n_ones}"
             )
-        ffi = torch.tensor([m.sum() for m in mask])
+        ffi = torch.tensor([m.sum(dtype=torch.int) for m in mask])
         _error = False
         if len(ffi.unique()) == 1:
             return
