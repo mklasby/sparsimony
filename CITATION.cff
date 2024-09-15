@@ -3,6 +3,6 @@ message: "If you use this software in your work, please cite it as below."
 authors:
   - family-names: Lasby
     given-names: Mike
-title: Sparsimony
+title: Sparsimony - Dynamic sparse training and pruning algorithms for PyTorch
 version: 0.2
 date-released: "2024-09-15"
