@@ -157,11 +157,15 @@ class RigL(DSTMixin, BaseSparsifier):
             self._assert_sparsity_level(mask, sparsity)
 
     def _global_step(self, prune_ratio: float) -> None:
-        global_data_helper = GlobalPruningDataHelper(self.groups)
+        global_data_helper = GlobalPruningDataHelper(
+            self.groups, self.global_buffers_cpu_offload
+        )
         dense_grads = []
         for config in self.groups:
             dense_grads.append(self._get_dense_grads(**config).flatten())
         dense_grads = torch.concat(dense_grads)
+        if self.global_buffers_cpu_offload:
+            dense_grads = dense_grads.to("cpu")
         target_sparsity = self.get_sparsity_from_prune_ratio(
             global_data_helper.masks, prune_ratio
         )
