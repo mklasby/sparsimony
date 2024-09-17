@@ -323,9 +323,14 @@ class BaseGrower(BaseMaskCalculator):
                 int(mask.numel() * (1 - sparsity)) - mask.sum(dtype=torch.int)
             )
         if n_grow < 0:
+            current_n_ones = (
+                int(mask.nansum(dtype=torch.int).item())
+                if mask.device != torch.device("cpu")
+                else int(mask.sum(dtype=torch.int).item())
+            )
             raise RuntimeError(
                 f"Current sparsity > target in grow mask! Current n_ones "
-                f"{int(mask.nansum(dtype=torch.int).item())} vs. Target n_ones "
+                f"{current_n_ones} vs. Target n_ones "
                 f"{int(mask.numel() * (1 - sparsity))}"
             )
         return n_grow
