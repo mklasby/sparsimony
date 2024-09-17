@@ -79,7 +79,9 @@ def test_unstructured_random_grower(mask, sparsity):
 
 
 def test_unstructured_pruners(mask, sparsity, dense_grads):
-    n_grow = int(mask.numel() * (1 - sparsity)) - int(mask.sum(dtype=torch.int).item())
+    n_grow = int(mask.numel() * (1 - sparsity)) - int(
+        mask.sum(dtype=torch.int).item()
+    )
     if n_grow < 0:
         with pytest.raises(RuntimeError) as excinfo:
             _ = UnstructuredGradientGrower.calculate_mask(
