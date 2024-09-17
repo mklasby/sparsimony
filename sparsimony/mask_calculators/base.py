@@ -59,8 +59,14 @@ class BasePruner(BaseMaskCalculator):
             int: The number of elements to be dropped from a mask
                 tensor given a target sparsity
         """
-
-        n_drop = math.ceil(mask.nansum() - ((1 - sparsity) * mask.numel()))
+        if mask.device != torch.device("cpu"):
+            n_drop = math.ceil(
+                mask.nansum(dtype=torch.int) - ((1 - sparsity) * mask.numel())
+            )
+        else:
+            n_drop = math.ceil(
+                mask.sum(dtype=torch.int) - ((1 - sparsity) * mask.numel())
+            )
         return n_drop
 
     @classmethod
@@ -100,25 +106,42 @@ class FineGrainedPruner(BasePruner):
                 "Found a target nnz per tile of 0! All candidate tiles will be "
                 "fully pruned by this pruner."
             )
-        n_drop_per_tile = torch.tensor(
-            [n.nansum().item() - n_ones_per_tile_target for n in mask_slice],
-            dtype=torch.int,
-        )
+        if mask.device != torch.device("cpu"):
+            n_drop_per_tile = torch.tensor(
+                [
+                    n.nansum(dtype=torch.int).item() - n_ones_per_tile_target
+                    for n in mask_slice
+                ],
+                dtype=torch.int,
+            )
+        # nansum for cpu and int doesn't work, below will fail for padded tensor
+        else:
+            n_drop_per_tile = torch.tensor(
+                [
+                    n.sum(dtype=torch.int).item() - n_ones_per_tile_target
+                    for n in mask_slice
+                ],
+                dtype=torch.int,
+            )
         if not (n_drop_per_tile >= 0).all():
             cls._logger.warning(
                 f"n_drop_per_tile < 0 ({n_drop_per_tile}). Will skip tiles with"
                 " nnz elements < n_drop"
             )
-        if not (n_drop_per_tile.sum() >= n_drop):
+        if not (n_drop_per_tile.sum(dtype=torch.int) >= n_drop):
             cls._logger.warning(
                 "(n_drop_per_tile.sum() >= n_drop): "
-                f"({(n_drop_per_tile.sum() >= n_drop)}) Check sparsity level "
-                "and/or padding"
+                f"({(n_drop_per_tile.sum(dtype=torch.int) >= n_drop)}) "
+                "Check sparsity level and/or padding"
             )
         scores = cls.get_scores(
             mask_slice, candidate_tiles, *args, **kwargs
         )  # Logic defined by child
-        if dist.is_initialized():
+        if dist.is_initialized() and scores.device != torch.device("cpu"):
+            # For metrics such as weight magnitude, we don't need to all_reduce.
+            # However, hard to guarantee so generally we perform all_reduce
+            # except for in the case where scores are on CPU
+            # (only supports gloo backend)
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
 
         if len(n_drop_per_tile.unique()) == 1:
@@ -159,7 +182,9 @@ class StructuredPruner(BasePruner):
     @classmethod
     def _get_n_tiles_to_drop(cls, sparsity: float, mask: torch.Tensor) -> int:
         nnz_el_target = math.floor(mask.numel() * (1 - sparsity))
-        nnz_tiles = (torch.count_nonzero(mask, dim=-1) != 0).sum()
+        nnz_tiles = (torch.count_nonzero(mask, dim=-1) != 0).sum(
+            dtype=torch.int
+        )
         n_tiles_to_drop = math.ceil(
             (nnz_tiles * mask.shape[-1] - nnz_el_target) / mask.shape[-1]
         )
@@ -197,7 +222,11 @@ class StructuredPruner(BasePruner):
             mask_slice, candidate_tiles, *args, **kwargs
         )  # Logic defined by child
         scores = torch.linalg.norm(scores, ord=aggregate_norm_ord, dim=1)
-        if dist.is_initialized():
+        if dist.is_initialized() and scores.device != torch.device("cpu"):
+            # For metrics such as weight magnitude, we don't need to all_reduce.
+            # However, hard to guarantee so generally we perform all_reduce
+            # except for in the case where scores are on CPU
+            # (only supports gloo backend)
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
         _, indices = torch.topk(scores, k=n_tiles_to_drop, largest=False)
         # zero out all elements in tile for structured pruning
@@ -282,11 +311,26 @@ class BaseGrower(BaseMaskCalculator):
     @classmethod
     def get_n_grow(cls, mask: torch.Tensor, sparsity: float) -> int:
         # target_nnz - current nnz
-        n_grow = int(mask.numel() * (1 - sparsity) - mask.nansum())
+        if mask.device != torch.device("cpu"):
+            # Nansum with int dtype only supported on gpu
+            n_grow = int(
+                int(mask.numel() * (1 - sparsity))
+                - mask.nansum(dtype=torch.int)
+            )
+        else:
+            # Will crash if tensor is padded
+            n_grow = int(
+                int(mask.numel() * (1 - sparsity)) - mask.sum(dtype=torch.int)
+            )
         if n_grow < 0:
+            current_n_ones = (
+                int(mask.nansum(dtype=torch.int).item())
+                if mask.device != torch.device("cpu")
+                else int(mask.sum(dtype=torch.int).item())
+            )
             raise RuntimeError(
                 f"Current sparsity > target in grow mask! Current n_ones "
-                f"{int(mask.nansum().item())} vs. Target n_ones "
+                f"{current_n_ones} vs. Target n_ones "
                 f"{int(mask.numel() * (1 - sparsity))}"
             )
         return n_grow
@@ -323,12 +367,12 @@ class FineGrainedGrower(BaseGrower):
             )
         n_grow_per_tile = (
             n_ones_per_tile_target
-            - torch.count_nonzero(mask_slice, dim=-1)
-            + torch.isnan(mask_slice).sum(dim=-1)
-        )
+            - mask_slice.sum(dim=-1, dtype=torch.int)
+            + torch.isnan(mask_slice).sum(dim=-1, dtype=torch.int)
+        ).type(torch.int)
         n_grow_per_tile = torch.where(
-            n_grow_per_tile > (mask_slice == 0).sum(dim=-1),
-            (mask_slice == 0).sum(dim=-1),
+            n_grow_per_tile > (mask_slice == 0).sum(dim=-1, dtype=torch.int),
+            (mask_slice == 0).sum(dim=-1, dtype=torch.int),
             n_grow_per_tile,
         )
         if n_ones_per_tile_target == 0:
@@ -341,16 +385,20 @@ class FineGrainedGrower(BaseGrower):
                 f"n_grow_per_tile < 0 ({n_grow_per_tile}). Will skip tiles with"
                 " nz elements > n_grow"
             )
-        if not (n_grow_per_tile.sum() <= n_grow):
+        if not (n_grow_per_tile.sum(dtype=torch.int) <= n_grow):
             cls._logger.warning(
                 "(n_grow_per_tile.sum() <= n_grow): "
-                f"({(n_grow_per_tile.sum() <= n_grow)}) Check sparsity level "
-                "and/or padding"
+                f"({n_grow_per_tile.sum(dtype=torch.int)} <= {n_grow}) "
+                "Check sparsity level and/or padding"
             )
         scores = cls.get_scores(
             mask_slice, candidate_tiles, *args, **kwargs
         )  # Logic defined by child
-        if dist.is_initialized():
+        if dist.is_initialized() and scores.device != torch.device("cpu"):
+            # For metrics such as weight magnitude, we don't need to all_reduce.
+            # However, hard to guarantee so generally we perform all_reduce
+            # except for in the case where scores are on CPU
+            # (only supports gloo backend):
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
         if len(n_grow_per_tile.unique()) == 1:
             k = n_grow_per_tile.unique().item()
@@ -381,7 +429,7 @@ class FineGrainedGrower(BaseGrower):
                         f"{n_grow_this_tile} > {len(score)}"
                     )
                     n_grow_this_tile = len(score)
-                not_nan = (~torch.isnan(mask_slice[n_idx])).sum()
+                not_nan = (~torch.isnan(mask_slice[n_idx])).sum(dtype=torch.int)
                 if n_grow_this_tile > not_nan:
                     n_grow_this_tile = not_nan
                 _, indices = torch.topk(score, k=n_grow_this_tile, largest=True)
@@ -424,7 +472,11 @@ class StructuredGrower(BaseGrower):
             torch.full_like(scores, cls._SCORE_FILL_VALUE),
             scores,
         )
-        if dist.is_initialized():
+        if dist.is_initialized() and scores.device != torch.device("cpu"):
+            # For metrics such as weight magnitude, we don't need to all_reduce.
+            # However, hard to guarantee so generally we perform all_reduce
+            # except for in the case where scores are on CPU
+            # (only supports gloo backend):
             dist.all_reduce(scores, dist.ReduceOp.AVG, async_op=False)
         _, indices = torch.topk(scores, k=n_tiles_to_keep, largest=True)
         mask_slice[indices] = 1

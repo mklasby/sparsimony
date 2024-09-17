@@ -26,7 +26,7 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
         )
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
-        n_ones = mask.sum()
+        n_ones = mask.sum(dtype=torch.int)
         actual_n_ones = int(mask.numel() * (1 - sparsity_level))
         if abs(n_ones - actual_n_ones) > 1:
             raise RuntimeError(f"Found sparsity of {n_ones} != {actual_n_ones}")

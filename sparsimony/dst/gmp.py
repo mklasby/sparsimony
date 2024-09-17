@@ -104,7 +104,9 @@ class GMP(DSTMixin, BaseSparsifier):
             self._assert_sparsity_level(mask, sparsity)
 
     def _global_step(self) -> None:
-        global_data_helper = GlobalPruningDataHelper(self.groups)
+        global_data_helper = GlobalPruningDataHelper(
+            self.groups, self.global_buffers_cpu_offload
+        )
         self.prune_mask(
             self.sparsity,
             global_data_helper.masks,

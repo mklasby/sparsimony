@@ -6,6 +6,7 @@ import logging
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributed as dist
 from torch.ao.pruning.sparsifier.utils import get_arg_info_from_tensor_fqn
 
 from sparsimony.utils import get_mask, get_original_tensor, get_parametrization
@@ -28,6 +29,7 @@ class DSTMixin(ABC):
         optimizer: torch.optim.Optimizer,
         random_mask_init: bool = True,
         global_pruning: bool = False,
+        global_buffers_cpu_offload: bool = True,
         *args,
         **kwargs,
     ):
@@ -39,6 +41,13 @@ class DSTMixin(ABC):
             random_mask_init (bool, optional): If True, randomly prune mask at
                 initialization. Otherwise, use pruning criteria. Defaults to
                 True.
+            global_pruning (bool, optional): If True, apply pruner and regrowth
+                algorithms globally, across all layers. May result in layer
+                collapse. Defaults to False.
+            global_buffers_cpu_offload (bool, optional): If True, global pruner
+                data helper will immediately move concatenated weights and masks
+                to CPU to reduce memory overhead of storing the additional copy
+                of these tensors. Defaults to True.
         """
         if type(optimizer) not in self._OPTIM_REG:
             raise NotImplementedError(
@@ -47,6 +56,7 @@ class DSTMixin(ABC):
         self.optimizer = optimizer
         self.random_mask_init = random_mask_init
         self.global_pruning = global_pruning
+        self.global_buffers_cpu_offload = global_buffers_cpu_offload
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
         self.prepared_ = False
@@ -141,9 +151,9 @@ class DSTMixin(ABC):
             except AssertionError:
                 self._logger.debug(
                     "Assertion checks failed on newly initialized values!\n"
-                    f"Found {(unequal_elements[mask == 1]==False).sum().item()}"
+                    f"Found {(unequal_elements[mask == 1]==False).sum(dtype=torch.int).item()}"  # noqa
                     " values that had the same value after reinit and "
-                    f"{(unequal_elements[mask==0].any()==True).sum().item()}"
+                    f"{(unequal_elements[mask==0].any()==True).sum(dtype=torch.int).item()}"  # noqa
                     f" reinit masked values in layer: {config['tensor_fqn']}."
                 )
 
@@ -170,7 +180,7 @@ class DSTMixin(ABC):
             self._broadcast_tensor(mask)
 
     def calculate_mask_sparsity(self, mask: torch.Tensor):
-        return 1 - (mask.sum() / mask.numel())
+        return 1 - (mask.sum(dtype=torch.int) / mask.numel())
 
     def calculate_global_sparsity(self):
         total_el = 0
@@ -178,14 +188,14 @@ class DSTMixin(ABC):
         for config in self.groups:
             mask = get_mask(config["module"], config["tensor_name"])
             total_el += mask.numel()
-            nnz_el += mask.sum()
+            nnz_el += mask.sum(dtype=torch.int)
         return 1 - (nnz_el / total_el)
 
     @classmethod
     def get_prune_ratio_from_sparsity(
         cls, mask: torch.Tensor, sparsity: float
     ) -> torch.Tensor:
-        current_sparsity = (mask == 0).sum() / mask.numel()
+        current_sparsity = (mask == 0).count_nonzero() / mask.numel()
         return round(
             ((sparsity - current_sparsity) / (1 - current_sparsity)).item(), 6
         )
@@ -194,24 +204,24 @@ class DSTMixin(ABC):
     def get_sparsity_from_prune_ratio(
         cls, mask: torch.Tensor, prune_ratio: float
     ) -> torch.Tensor:
-        current_sparsity = (mask == 0).sum() / mask.numel()
+        current_sparsity = (mask == 0).count_nonzero() / mask.numel()
         return round(
             (prune_ratio * (1 - current_sparsity) + current_sparsity).item(), 6
         )
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
-        n_ones = mask.sum()
-        actual_n_ones = int(mask.numel() * (1 - sparsity_level))
+        n_ones = mask.count_nonzero()
+        target_n_ones = int(mask.numel() * (1 - sparsity_level))
         # We ignore off-by-one errors as these will be due to floor ops
-        if n_ones != actual_n_ones and abs(n_ones - actual_n_ones) > 1:
+        if n_ones != target_n_ones and abs(n_ones - target_n_ones) > 1:
             # With very large mask tensors, we may have some precision errors
             # with exact n_ones. Therefore, we simply log the warning instead of
             # raising.
             # Also naturally occurs in structured pruning
             # TODO: For structured pruning we may wish to calculate
             # actual_n_ones based on network topology
-            self._logger.debug(
-                f"n_ones actual {n_ones} != n_one target {actual_n_ones}"
+            self._logger.warning(
+                f"n_ones actual {n_ones} != n_one target {target_n_ones}"
             )
 
     # @override
@@ -265,7 +275,9 @@ class DSTMixin(ABC):
                     self.calculate_mask_sparsity(mask).item()
                 )
                 active_neurons.append(
-                    torch.vmap(neuron_is_active)(mask).sum().item()
+                    torch.vmap(neuron_is_active)(mask)
+                    .sum(dtype=torch.int)
+                    .item()
                 )
                 total_neurons.append(len(mask))
             active_vs_total_neurons = []
@@ -322,7 +334,9 @@ class DSTMixin(ABC):
         )
 
     def _global_init_prune(self) -> None:
-        global_data_helper = GlobalPruningDataHelper(self.groups)
+        global_data_helper = GlobalPruningDataHelper(
+            self.groups, self.global_buffers_cpu_offload
+        )
         if self.random_mask_init:
             global_data_helper.masks.data = (
                 UnstructuredRandomPruner.calculate_mask(
@@ -346,36 +360,62 @@ class DSTMixin(ABC):
         for config in self.groups:
             mask = get_mask(**config)
             mask_flat = mask.view(mask.shape[0], -1)
-            active_neurons += (mask_flat.sum(dim=-1) != 0).sum()
+            active_neurons += mask_flat.sum(
+                dim=-1, dtype=torch.int
+            ).count_nonzero()
             total_neurons += mask_flat.shape[0]
         return active_neurons / total_neurons
 
 
 class GlobalPruningDataHelper:
+    """Data helper for loading, concatenating, and flattening masks and weights.
 
-    def __init__(self, groups: List[Dict[str, Any]]):
+    Args:
+        groups (List[Dict[str, Any]]): BasePruner groups containing module
+            references and sparse configs
+        cpu_offload (bool, optional): If True, move concatenated buffers to cpu.
+            NOTE: Currently, we only move buffers after concatenation to avoid
+            moving the tensors all back to original device again. Could further
+            reduce overhead by moving tensors prior to concatenation. Defaults
+            to False.
+    """
+
+    def __init__(self, groups: List[Dict[str, Any]], cpu_offload: bool = False):
         self.groups = groups
+        self.cpu_offload = cpu_offload
         original_weights = []
         sparse_weights = []
         original_shapes = []
         original_numels = []
+        original_devices = []
         masks = []
         for config in self.groups:
             module = config["module"]
             tensor_name = config["tensor_name"]
             mask = get_mask(module, tensor_name)
+            original_devices.append(mask.device)
             original_shapes.append(mask.shape)
             original_numels.append(mask.numel())
+            sparse_weight = getattr(module, tensor_name)
+            weights = get_original_tensor(module, tensor_name)
+            if dist.is_initialized():
+                # All reduce here since once we transfer to CPU backend we
+                # we cannot use dist utils with NCCL backend.
+                dist.all_reduce(weights, dist.ReduceOp.AVG, async_op=False)
+                dist.all_reduce(
+                    sparse_weight, dist.ReduceOp.AVG, async_op=False
+                )
+                dist.all_reduce(mask, dist.ReduceOp.AVG, async_op=False)
+            original_weights.append(weights.flatten())
             masks.append(mask.flatten())
-            original_weights.append(
-                get_original_tensor(module, tensor_name).flatten()
-            )
-            sparse_weights.append(getattr(module, tensor_name).flatten())
-        self.original_weights = torch.concat(original_weights)
-        self.sparse_weights = torch.concat(sparse_weights)
-        self.masks = torch.concat(masks)
+            sparse_weights.append(sparse_weight.flatten())
+        device = "cpu" if self.cpu_offload else self._original_device
+        self.original_weights = torch.concat(original_weights).to(device)
+        self.sparse_weights = torch.concat(sparse_weights).to(device)
+        self.masks = torch.concat(masks).to(device)
         self.original_shapes = original_shapes
         self.original_numels = original_numels
+        self.original_devices = original_devices
 
     def reshape_and_assign_masks(
         self,
@@ -387,4 +427,8 @@ class GlobalPruningDataHelper:
             stride_start = sum(self.original_numels[:idx])
             stride_end = sum(self.original_numels[: idx + 1])
             shape = self.original_shapes[idx]
-            mask.data = self.masks[stride_start:stride_end].reshape(shape)
+            mask.data = (
+                self.masks[stride_start:stride_end]
+                .reshape(shape)
+                .to(self.original_devices[idx])
+            )
