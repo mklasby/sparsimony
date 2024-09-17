@@ -1,6 +1,7 @@
 from typing import Optional, Dict, Any
 import torch
 import torch.nn as nn
+import torch.distributed as dist
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 
 from sparsimony.distributions.base import BaseDistribution
@@ -162,7 +163,10 @@ class RigL(DSTMixin, BaseSparsifier):
         )
         dense_grads = []
         for config in self.groups:
-            dense_grads.append(self._get_dense_grads(**config).flatten())
+            these_grads = self._get_dense_grads(**config)
+            if dist.is_initialized():
+                dist.all_reduce(these_grads, dist.ReduceOp.AVG, async_op=False)
+            dense_grads.append(these_grads.flatten())
         dense_grads = torch.concat(dense_grads)
         if self.global_buffers_cpu_offload:
             dense_grads = dense_grads.to("cpu")

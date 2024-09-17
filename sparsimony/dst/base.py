@@ -6,6 +6,7 @@ import logging
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import torch.distributed as dist
 from torch.ao.pruning.sparsifier.utils import get_arg_info_from_tensor_fqn
 
 from sparsimony.utils import get_mask, get_original_tensor, get_parametrization
@@ -395,11 +396,19 @@ class GlobalPruningDataHelper:
             original_devices.append(mask.device)
             original_shapes.append(mask.shape)
             original_numels.append(mask.numel())
+            sparse_weight = getattr(module, tensor_name)
+            weights = get_original_tensor(module, tensor_name)
+            if dist.is_initialized():
+                # All reduce here since once we transfer to CPU backend we
+                # we cannot use dist utils with NCCL backend.
+                dist.all_reduce(weights, dist.ReduceOp.AVG, async_op=False)
+                dist.all_reduce(
+                    sparse_weight, dist.ReduceOp.AVG, async_op=False
+                )
+                dist.all_reduce(mask, dist.ReduceOp.AVG, async_op=False)
+            original_weights.append(weights.flatten())
             masks.append(mask.flatten())
-            original_weights.append(
-                get_original_tensor(module, tensor_name).flatten()
-            )
-            sparse_weights.append(getattr(module, tensor_name).flatten())
+            sparse_weights.append(sparse_weight.flatten())
         device = "cpu" if self.cpu_offload else self._original_device
         self.original_weights = torch.concat(original_weights).to(device)
         self.sparse_weights = torch.concat(sparse_weights).to(device)
