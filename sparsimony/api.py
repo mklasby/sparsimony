@@ -12,7 +12,7 @@ from sparsimony.schedulers.base import (
     CosineDecayScheduler,
 )
 from sparsimony.dst.rigl import RigL
-from sparsimony.dst.srigl import SRigL, SRigLTwoFour
+from sparsimony.dst.srigl import SRigL, SRigLTwoFour  # noqa
 from sparsimony.dst.set import SET
 from sparsimony.dst.gmp import GMP
 from sparsimony.dst.static import StaticMagnitudeSparsifier
@@ -161,6 +161,7 @@ def srigl_two_four(
     t_end: int,
     delta_t: int = 100,
     pruning_ratio: float = 0.3,
+    random_mask_init: bool = False,
     excluded_types: str | None | List[str] = "Conv2d",
     excluded_mod_name_regexs: str | None | List[str] = "classifier",
 ) -> RigL:
@@ -180,6 +181,9 @@ def srigl_two_four(
             types to exclude. Defaults to Conv2d.
         excluded_mod_name_regex Optional[Union[str, List[str]]]: FQN module
             names to exclude.
+        random_mask_init (bool, optional): If False, use magnitude pruning to
+            initialize the mask. If True mask is randomly pruned. Defaults to
+            False.
 
     Returns:
         RigL: Initialized rigl sparsifier.
@@ -190,7 +194,9 @@ def srigl_two_four(
             t_end=t_end,
             delta_t=delta_t,
         ),
-        distribution=UniformDistribution(),
+        distribution=UniformDistribution(
+            excluded_types=excluded_types,
+            excluded_mod_name_regexs=excluded_mod_name_regexs,
+        ),
         optimizer=optimizer,
-        sparsity=sparsity,
     )
