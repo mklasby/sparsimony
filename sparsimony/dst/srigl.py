@@ -203,6 +203,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         tensor_fqn: str,
         **kwargs,
     ):
+        self._logger.debug(f"Updating mask for {tensor_fqn}...")
         mask = get_mask(module, tensor_name)
         if sparsity == 0:
             mask.data = torch.ones_like(mask)
@@ -303,7 +304,7 @@ class SRigLTwoFour(SRigL):
         **kwargs,
     ) -> torch.Tensor:
         mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            sparsity=sparsity, weights=weights
+            sparsity=sparsity, mask=mask, weights=weights
         )
         return mask
 
@@ -317,7 +318,6 @@ class SRigLTwoFour(SRigL):
         old_mask = mask.clone()
         # Grow new weights
         new_mask = self.grower.calculate_mask(
-            sparsity,
             mask,
             grads=dense_grads,
         )
