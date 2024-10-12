@@ -1,7 +1,6 @@
 from typing import Optional, Dict, Any
 from math import prod
 
-from sparsimony.mask_calculators.fine_grained import FFIMagnitudePruner
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
@@ -14,6 +13,10 @@ from sparsimony.dst.base import DSTMixin
 from sparsimony.mask_calculators import (
     FFIRandomPruner,
     FFIGradientGrower,
+    FFIMagnitudePruner,
+    NMGradientGrower,
+    NMRandomPruner,
+    NMMagnitudePruner,
     UnstructuredMagnitudePruner,
     NeuronMagnitudePruner,
     HierarchicalMaskCalculator,
@@ -39,6 +42,9 @@ class SRigL(DSTMixin, BaseSparsifier):
     ):
         self.scheduler = scheduler
         self.distribution = distribution
+        if sparsity != 0.5:
+            self._logger.warning("Must set sparsity to 0.5 for 2:4")
+            sparsity = 0.5
         self.sparsity = sparsity
         self.grown_weights_init = grown_weights_init
         self.init_method = init_method
@@ -185,7 +191,7 @@ class SRigL(DSTMixin, BaseSparsifier):
             mask.data = HierarchicalMaskCalculator.calculate_mask(
                 sparsities, mask, calcs, calc_kwargs
             )
-            self._assert_ffi(mask, config["tensor_fqn"])
+            self._assert_structure(mask, config["tensor_fqn"])
 
     def update_mask(
         self,
@@ -211,7 +217,7 @@ class SRigL(DSTMixin, BaseSparsifier):
             self.prune_mask(target_sparsity, mask, weights, dense_grads)
             self.grow_mask(sparsity, mask, original_weights, dense_grads)
             self._assert_sparsity_level(mask, sparsity)
-            self._assert_ffi(mask, tensor_fqn)
+            self._assert_structure(mask, tensor_fqn)
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
         n_ones = mask.sum(dtype=torch.int)
@@ -255,7 +261,7 @@ class SRigL(DSTMixin, BaseSparsifier):
             s += f"FFI: {ffi}\n"
         return s
 
-    def _assert_ffi(self, mask, fqn: str) -> None:
+    def _assert_structure(self, mask, fqn: str) -> None:
         mask_flat = mask.view(mask.shape[0], prod(mask.shape[1:]))
         ffi = torch.count_nonzero(mask_flat, dim=-1)
         if len(ffi) > 1:
@@ -264,4 +270,122 @@ class SRigL(DSTMixin, BaseSparsifier):
         if len(ffi.unique()) > 1:
             raise RuntimeError(
                 f"FFI Violation found: {ffi.unique()} ffi's in layer {fqn}"
+            )
+
+
+class SRigLTwoFour(SRigL):
+
+    def __init__(
+        self,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        if self.gamma_sal is not None:
+            self._logger.warning(
+                f"Neuron ablation is not applicable for "
+                "SRigL 2:4. Gamma sal was set to "
+                f"{self.gamma_sal}"
+            )
+        self.grower = NMGradientGrower(
+            n=2,
+            m=4,
+            pad=False,
+            permute_conv_to_nhwc=False,  # no kernels for conv, don't waste time
+        )
+
+    def prune_mask(
+        self,
+        sparsity: float,
+        mask: torch.Tensor,
+        weights: torch.Tensor,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        mask.data = UnstructuredMagnitudePruner.calculate_mask(
+            sparsity=sparsity, weights=weights
+        )
+        return mask
+
+    def grow_mask(
+        self,
+        sparsity: float,
+        mask: torch.Tensor,
+        original_weights: torch.Tensor,
+        dense_grads: torch.Tensor,
+    ) -> torch.Tensor:
+        old_mask = mask.clone()
+        # Grow new weights
+        new_mask = self.grower.calculate_mask(
+            sparsity,
+            mask,
+            grads=dense_grads,
+        )
+        assert new_mask.data_ptr() != old_mask.data_ptr()
+        # Assign newly grown weights to self.grown_weights_init in place
+        original_weights.data = torch.where(
+            new_mask != old_mask,
+            torch.full_like(
+                original_weights, fill_value=self.grown_weights_init
+            ),
+            original_weights,
+        )
+        # Overwrite old mask
+        mask.data = new_mask.data
+        return mask
+
+    def _initialize_masks(self) -> None:
+        self._distribute_sparsity(self.sparsity)
+        if self.random_mask_init:
+            pruner = NMRandomPruner(
+                n=2, m=4, pad=False, permute_conv_to_nhwc=False
+            )
+        else:
+            pruner = NMMagnitudePruner(
+                n=2, m=4, pad=False, permute_conv_to_nhwc=False
+            )
+        for config in self.groups:
+            if config["sparsity"] == 0:
+                continue
+            # Prune to target sparsity for this step
+            weights = getattr(config["module"], config["tensor_name"])
+            mask = get_mask(config["module"], config["tensor_name"])
+            mask.data = pruner.calculate_mask(mask, weights=weights)
+            self._assert_structure(mask, config["tensor_fqn"])
+
+    def _assert_structure(self, mask, fqn: str) -> None:
+        if mask.shape[1] % 64 != 0:
+            self._logger.warning(
+                f"Mask shape is not a multiple of 64, this weight tensor may "
+                "not work with torch semi-structured kernels!\n"
+                f"Mask shape: {mask.shape} found at {fqn}"
+            )
+        try:
+            mask_2_4 = mask.view(-1, 4)
+        except RuntimeError as e:
+            self._logger.error(f"fqn: {fqn:}")
+            raise e
+        ones = torch.count_nonzero(mask_2_4, dim=-1)
+        if (ones != 2).all():
+            self._logger.warning(
+                f"{fqn} mask is not 2:4 pruned! Ones Tensor:\n" f"{ones}"
+            )
+            # raise RuntimeError(
+            #     f"FFI Violation found: {ffi.unique()} ffi's in layer {fqn}"
+            # )
+
+    def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
+        # For 2:4 we should end up with precise counts
+        n_ones = mask.count_nonzero()
+        target_n_ones = int(mask.numel() * (1 - sparsity_level))
+        # We ignore off-by-one errors as these will be due to floor ops
+        if n_ones != target_n_ones and abs(n_ones - target_n_ones) > 1:
+            # With very large mask tensors, we may have some precision errors
+            # with exact n_ones. Therefore, we simply log the warning instead of
+            # raising.
+            # Also naturally occurs in structured pruning
+            # TODO: For structured pruning we may wish to calculate
+            # actual_n_ones based on network topology
+            self._logger.warning(
+                f"n_ones actual {n_ones} != n_one target {target_n_ones}"
             )
