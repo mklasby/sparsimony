@@ -22,11 +22,13 @@ class BaseDistribution(ABC):
         self.skip_last_layer = skip_last_layer
         if excluded_types is None:
             excluded_types = []
-        self.excluded_types = excluded_types
+        elif isinstance(excluded_types, str):
+            excluded_types = [excluded_types]
         if excluded_mod_name_regexs is None:
             excluded_mod_name_regexs = []
         elif isinstance(excluded_mod_name_regexs, str):
             excluded_mod_name_regexs = [excluded_mod_name_regexs]
+        self.excluded_types = excluded_types
         self.excluded_mod_name_regexs = excluded_mod_name_regexs
         self._logger = logging.getLogger(__name__)
         self._cache: Dict[float, List[float]] = dict()
@@ -48,8 +50,9 @@ class BaseDistribution(ABC):
             return True
         if layer_id == (group_len - 1) and self.skip_last_layer:
             return True
-        if type(mod) in self.excluded_types:
-            return True
+        for type_str in self.excluded_types:
+            if type_str in str(type(mod)):
+                return True
         for pattern in self.excluded_mod_name_regexs:
             if re.match(pattern, name):
                 return True
@@ -86,7 +89,7 @@ class BaseDistribution(ABC):
             "The maximum possible sparsity with this configuration is "
             f"{self._calculate_max_valid_sparsity(groups):.4f}\n"
             "Alternatively, try using UniformDistribution with "
-            "include_excluded_modules_in_param_count = False"
+            "excluded_modules_in_param_count = False"
         )
 
     def _calculate_max_valid_sparsity(
@@ -123,7 +126,7 @@ class UniformDistribution(BaseDistribution):
         skip_last_layer: bool = False,
         excluded_types: Optional[List[type]] = None,
         excluded_mod_name_regexs: Optional[List[type]] = None,
-        include_excluded_modules_in_param_count: bool = True,
+        excluded_modules_in_param_count: bool = False,
     ):
         super().__init__(
             skip_first_layer,
@@ -131,16 +134,14 @@ class UniformDistribution(BaseDistribution):
             excluded_types,
             excluded_mod_name_regexs,
         )
-        self.include_excluded_modules_in_param_count = (
-            include_excluded_modules_in_param_count
-        )
+        self.excluded_modules_in_param_count = excluded_modules_in_param_count
 
     def __call__(
         self, sparsity: float, groups: List[Dict[str, Any]], *args, **kwargs
     ) -> List[Dict[str, Any]]:
         if sparsity in self._cache:
             return self._cache_loader(sparsity, groups)
-        if not self.include_excluded_modules_in_param_count:
+        if not self.excluded_modules_in_param_count:
             for layer_idx, layer_config in enumerate(groups):
                 if self._should_exclude(
                     layer_config["module"],
@@ -295,7 +296,7 @@ class UniformNMDistribution(UniformDistribution):
             skip_last_layer,
             excluded_types,
             excluded_mod_name_regexs,
-            include_excluded_modules_in_param_count=False,
+            excluded_modules_in_param_count=False,
         )
 
     def _should_exclude(

@@ -1,4 +1,5 @@
 import collections
+import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
 import copy
@@ -167,12 +168,15 @@ class DSTMixin(ABC):
         model: nn.Module,
         sparse_config: Dict[str, Any],
     ):
+        _start = time.time()
+        self._logger.info("Preparing masks...")
         super().prepare(model, sparse_config)
         self._initialize_masks()
         self._broadcast_masks()
         self.adjust_init_for_sparsity()
         self.zero_inactive_param_momentum_buffers()
         self.prepared_ = True
+        self._logger.info(f"Masks prepared in {time.time()-_start} seconds.")
 
     def _broadcast_masks(self) -> None:
         for config in self.groups:

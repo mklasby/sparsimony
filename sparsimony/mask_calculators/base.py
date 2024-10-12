@@ -59,14 +59,10 @@ class BasePruner(BaseMaskCalculator):
             int: The number of elements to be dropped from a mask
                 tensor given a target sparsity
         """
-        if mask.device != torch.device("cpu"):
-            n_drop = math.ceil(
-                mask.nansum(dtype=torch.int) - ((1 - sparsity) * mask.numel())
-            )
-        else:
-            n_drop = math.ceil(
-                mask.sum(dtype=torch.int) - ((1 - sparsity) * mask.numel())
-            )
+        # TODO: If padding is used this will crash, fix with int masks
+        n_drop = math.ceil(
+            mask.sum(dtype=torch.int) - ((1 - sparsity) * mask.numel())
+        )
         return n_drop
 
     @classmethod
@@ -106,23 +102,13 @@ class FineGrainedPruner(BasePruner):
                 "Found a target nnz per tile of 0! All candidate tiles will be "
                 "fully pruned by this pruner."
             )
-        if mask.device != torch.device("cpu"):
-            n_drop_per_tile = torch.tensor(
-                [
-                    n.nansum(dtype=torch.int).item() - n_ones_per_tile_target
-                    for n in mask_slice
-                ],
-                dtype=torch.int,
-            )
-        # nansum for cpu and int doesn't work, below will fail for padded tensor
-        else:
-            n_drop_per_tile = torch.tensor(
-                [
-                    n.sum(dtype=torch.int).item() - n_ones_per_tile_target
-                    for n in mask_slice
-                ],
-                dtype=torch.int,
-            )
+        n_drop_per_tile = torch.tensor(
+            [
+                n.sum(dtype=torch.int).item() - n_ones_per_tile_target
+                for n in mask_slice
+            ],
+            dtype=torch.int,
+        )
         if not (n_drop_per_tile >= 0).all():
             cls._logger.warning(
                 f"n_drop_per_tile < 0 ({n_drop_per_tile}). Will skip tiles with"
@@ -311,20 +297,13 @@ class BaseGrower(BaseMaskCalculator):
     @classmethod
     def get_n_grow(cls, mask: torch.Tensor, sparsity: float) -> int:
         # target_nnz - current nnz
-        if mask.device != torch.device("cpu"):
-            # Nansum with int dtype only supported on gpu
-            n_grow = int(
-                int(mask.numel() * (1 - sparsity))
-                - mask.nansum(dtype=torch.int)
-            )
-        else:
-            # Will crash if tensor is padded
-            n_grow = int(
-                int(mask.numel() * (1 - sparsity)) - mask.sum(dtype=torch.int)
-            )
+        # TODO: Will crash if tensor is padded
+        n_grow = int(
+            int(mask.numel() * (1 - sparsity)) - mask.sum(dtype=torch.int)
+        )
         if n_grow < 0:
             current_n_ones = (
-                int(mask.nansum(dtype=torch.int).item())
+                int(mask.sum(dtype=torch.int).item())
                 if mask.device != torch.device("cpu")
                 else int(mask.sum(dtype=torch.int).item())
             )
