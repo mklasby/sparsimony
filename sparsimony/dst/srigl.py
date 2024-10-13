@@ -42,9 +42,6 @@ class SRigL(DSTMixin, BaseSparsifier):
     ):
         self.scheduler = scheduler
         self.distribution = distribution
-        if sparsity != 0.5:
-            self._logger.warning("Must set sparsity to 0.5 for 2:4")
-            sparsity = 0.5
         self.sparsity = sparsity
         self.grown_weights_init = grown_weights_init
         self.init_method = init_method
@@ -288,6 +285,9 @@ class SRigLTwoFour(SRigL):
                 "SRigL 2:4. Gamma sal was set to "
                 f"{self.gamma_sal}"
             )
+        if self.sparsity != 0.5:
+            self._logger.warning("Must set sparsity to 0.5 for 2:4")
+            self.sparsity = 0.5
         self.grower = NMGradientGrower(
             n=2,
             m=4,
