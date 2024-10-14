@@ -19,5 +19,6 @@ from .fine_grained import (
     NMGradientGrower,
     NMMagnitudePruner,
     NMRandomGrower,
+    NMRandomPruner,
 )
 from .base import HierarchicalMaskCalculator

@@ -1,4 +1,5 @@
 import collections
+import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, List
 import copy
@@ -167,12 +168,15 @@ class DSTMixin(ABC):
         model: nn.Module,
         sparse_config: Dict[str, Any],
     ):
+        _start = time.time()
+        self._logger.debug("Preparing masks...")
         super().prepare(model, sparse_config)
         self._initialize_masks()
         self._broadcast_masks()
         self.adjust_init_for_sparsity()
         self.zero_inactive_param_momentum_buffers()
         self.prepared_ = True
+        self._logger.debug(f"Masks prepared in {time.time()-_start} seconds.")
 
     def _broadcast_masks(self) -> None:
         for config in self.groups:
@@ -229,7 +233,12 @@ class DSTMixin(ABC):
         if not self.enable_mask_update:
             return False
         with torch.no_grad():
-            return self._step()
+            _start = time.time()
+            did_step = self._step()
+            self._logger.info(
+                f"Mask update completed in {time.time()-_start} seconds"
+            )
+            return did_step
 
     def zero_inactive_param_momentum_buffers(self) -> None:
 

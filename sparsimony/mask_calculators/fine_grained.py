@@ -125,7 +125,6 @@ class NMCalculatorBase:
         )
         def reshaped_calc_mask(mask, score_override, *args, **kwargs):
             sparsity = 1 - (self.n / self.m)
-
             return func(
                 sparsity,
                 mask,
@@ -139,6 +138,21 @@ class NMCalculatorBase:
 
 
 class NMMagnitudePruner(NMCalculatorBase, FineGrainedPruner, MagnitudePruner):
+
+    def __init__(
+        self,
+        n: int,
+        m: int,
+        pad: bool = False,
+        padding_dim: int = 1,
+        permute_conv_to_nhwc: bool = True,
+        *args,
+        **kwargs,
+    ):
+        super().__init__(n, m, pad, padding_dim, permute_conv_to_nhwc)
+
+
+class NMRandomPruner(NMCalculatorBase, FineGrainedPruner, RandomPruner):
 
     def __init__(
         self,
