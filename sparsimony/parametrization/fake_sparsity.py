@@ -18,7 +18,7 @@ class FakeSparsity(nn.Module):
 
     def __init__(self, mask):
         super().__init__()
-        self.register_buffer("mask", mask)
+        self.register_buffer("mask", mask.to(dtype=torch.bool))
 
     def forward(self, x):
         assert self.mask.shape == x.shape
@@ -48,7 +48,7 @@ class FakeSparsityDenseGradBuffer(FakeSparsity):
     def __init__(self, mask):
         super().__init__(mask)
         self.register_full_backward_hook(_accumulate_grad_bhook)
-        self.register_buffer("dense_grad", torch.zeros_like(self.mask))
+        self.register_buffer("dense_grad", torch.zeros_like(self.mask.shape))
         # Default true in case we need to update mask on step 1
         self.accumulate = True
 
@@ -62,4 +62,4 @@ def _accumulate_grad_bhook(self, grad_input, grad_output):
         # self.dense_grad += grad_input[0]
         # TODO: Confirm we don't need to sync this manually
     else:
-        self.dense_grad = torch.zeros_like(self.mask)
+        self.dense_grad = torch.zeros_like(self.mask.shape)
