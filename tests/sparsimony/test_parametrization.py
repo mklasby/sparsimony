@@ -12,10 +12,8 @@ from sparsimony.parametrization.fake_sparsity import (
 class TestFakeSparsity:
     @pytest.fixture(
         params=[
-            torch.ones((3, 3)),
-            torch.tensor(
-                [[1, 0, 1], [0, 1, 0], [1, 0, 1]], dtype=torch.float32
-            ),
+            torch.ones((3, 3), dtype=torch.bool),
+            torch.tensor([[1, 0, 1], [0, 1, 0], [1, 0, 1]], dtype=torch.bool),
         ],
         ids=["dense_mask", "50% sparse mask"],
     )
@@ -31,6 +29,15 @@ class TestFakeSparsity:
     def test_fake_sparsity_state_dict(self, fake_sparsity):
         state_dict = fake_sparsity.state_dict()
         assert "mask" in state_dict
+
+    def test_fake_sparsity_grad(self, fake_sparsity):
+        w1 = torch.ones((3, 3), dtype=torch.float, requires_grad=True)
+        w2 = torch.ones((3, 3), dtype=torch.float, requires_grad=True)
+        x = torch.arange(1, 10, dtype=torch.float).reshape(3, 3)
+        out = x @ (w1 * fake_sparsity.mask) @ (w2)
+        loss = (out - torch.rand((3, 3))).sum()
+        loss.backward()
+        assert (w1.grad[~fake_sparsity.mask] == 0).all()
 
 
 class TestFakeSparsityDenseGradBuffer:
