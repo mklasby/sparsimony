@@ -10,15 +10,21 @@ import torch.optim as optim
 import torch.distributed as dist
 from torch.ao.pruning.sparsifier.utils import get_arg_info_from_tensor_fqn
 
-from sparsimony.utils import get_mask, get_original_tensor, get_parametrization
+from sparsimony.utils import (
+    get_mask,
+    get_original_tensor,
+    get_parametrization,
+    cast_mask,
+)
 from sparsimony.nn_init import sparse_init
-from sparsimony.mask_calculators import UnstructuredRandomPruner
+from sparsimony.mask_calculators import UnstructuredPruner, RandomScorer
 
 _KEYS_NOT_IN_STATE_DICT = ["module", "module_fqn", "tensor_name"]
 
 
 class DSTMixin(ABC):
     # TODO: Consider extracting additional base class for pruners / one shot
+    _MASK_DTYPE = torch.bool
     _OPTIM_REG = {
         optim.SGD: ["momentum_buffer"],
         optim.AdamW: ["exp_avg", "exp_avg_sq"],
@@ -63,19 +69,39 @@ class DSTMixin(ABC):
         self.prepared_ = False
         super().__init__(*args, **kwargs)
 
-    @abstractmethod
     def prune_mask(
-        self, sparsity: float, mask: torch.Tensor, *args, **kwargs
-    ) -> torch.Tensor: ...
+        self,
+        sparsity: float,
+        mask: torch.Tensor,
+        weights: torch.Tensor,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        mask.data = self.pruner.calculate_mask(sparsity, mask, values=weights)
+        return mask
 
-    @abstractmethod
     def grow_mask(
         self,
         sparsity: float,
         mask: torch.Tensor,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor: ...
+        original_weights: torch.Tensor,
+    ):
+        old_mask = torch.clone(mask)
+        # Grow new weights
+        new_mask = self.grower.calculate_mask(
+            sparsity,
+            mask,
+        )
+        # Assign newly grown weights to self.grown_weights_init
+        torch.where(
+            new_mask != old_mask,
+            torch.full_like(
+                original_weights, fill_value=self.grown_weights_init
+            ),
+            original_weights,
+        )
+        # Overwrite old mask
+        mask.data = new_mask.data
 
     @abstractmethod
     def _step(self) -> bool: ...
@@ -172,6 +198,7 @@ class DSTMixin(ABC):
         self._logger.debug("Preparing masks...")
         super().prepare(model, sparse_config)
         self._initialize_masks()
+        _ = self._cast_masks(dtype=self._MASK_DTYPE)
         self._broadcast_masks()
         self.adjust_init_for_sparsity()
         self.zero_inactive_param_momentum_buffers()
@@ -235,7 +262,7 @@ class DSTMixin(ABC):
         with torch.no_grad():
             _start = time.time()
             did_step = self._step()
-            self._logger.info(
+            self._logger.debug(
                 f"Mask update completed in {time.time()-_start} seconds"
             )
             return did_step
@@ -347,10 +374,9 @@ class DSTMixin(ABC):
             self.groups, self.global_buffers_cpu_offload
         )
         if self.random_mask_init:
-            global_data_helper.masks.data = (
-                UnstructuredRandomPruner.calculate_mask(
-                    self.sparsity, global_data_helper.masks
-                )
+            pruner = UnstructuredPruner(scorer=RandomScorer)
+            global_data_helper.masks.data = pruner.calculate_mask(
+                self.sparsity, global_data_helper.masks
             )
         else:
             # use pruning criterion
@@ -374,6 +400,11 @@ class DSTMixin(ABC):
             ).count_nonzero()
             total_neurons += mask_flat.shape[0]
         return active_neurons / total_neurons
+
+    def _cast_masks(self, dtype: torch.dtype) -> torch.dtype:
+        for config in self.groups:
+            original_dtype = cast_mask(dtype=dtype, **config)
+        return original_dtype
 
 
 class GlobalPruningDataHelper:

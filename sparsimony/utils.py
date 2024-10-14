@@ -1,4 +1,4 @@
-from typing import List, Tuple, Callable, Dict, Any
+from typing import Tuple, Callable, Dict, Any
 import functools
 from math import prod
 
@@ -16,6 +16,20 @@ def get_mask(
     module: nn.Module, tensor_name: str = "weight", param_idx: int = 0, **kwargs
 ) -> torch.Tensor:
     return get_parametrization(module, tensor_name, param_idx).mask
+
+
+# TODO: remove going to keep things booly
+def cast_mask(
+    dtype: torch.dtype,
+    module: nn.Module,
+    tensor_name: str = "weight",
+    param_idx: int = 0,
+    **kwargs,
+) -> torch.dtype:
+    parametrization = get_parametrization(module, tensor_name, param_idx)
+    original_dtype = parametrization.mask.dtype
+    parametrization.mask = parametrization.mask.to(dtype=dtype)
+    return original_dtype
 
 
 def get_parametrization(
@@ -114,7 +128,7 @@ def view_tensors_as(
     size: Tuple[int] | int,
     pad: bool = False,
     padding_dim: int = 1,
-    permute_conv_to_nhwc: bool = True,
+    permute_conv_to_nhwc: bool = False,
 ) -> Callable:
     pad_value = float("nan")
     if not isinstance(size, Tuple):
@@ -126,6 +140,10 @@ def view_tensors_as(
             original_size = get_original_tensor_size(*args, **kwargs)
             _permuted = False
             if pad:
+                raise NotImplementedError(
+                    "Padding is being reimplemented for bool masks. "
+                    "Try again soon :)"
+                )
                 op = functools.partial(
                     pad_tensor_to_tile_view,
                     tile_view=size,
@@ -213,14 +231,9 @@ def view_tensors_as_neurons(fn: Callable) -> Callable:
 def calculate_per_tile_n_ones(
     mask: torch.Tensor,
     sparsity: float,
-    candidate_tiles: List[int] | None = None,
 ):
-    if candidate_tiles is not None:
-        mask_slice = mask[candidate_tiles]
-    else:
-        mask_slice = mask
     n_ones_total = int(mask.numel() * (1 - sparsity))
-    n_ones_per_tile = n_ones_total // mask_slice.shape[0]
+    n_ones_per_tile = n_ones_total // mask.shape[0]
     return n_ones_per_tile
 
 

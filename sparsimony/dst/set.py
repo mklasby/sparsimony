@@ -8,8 +8,10 @@ from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.utils import get_mask, get_original_tensor
 from sparsimony.dst.base import DSTMixin
 from sparsimony.mask_calculators import (
-    UnstructuredMagnitudePruner,
-    UnstructuredRandomGrower,
+    UnstructuredPruner,
+    UnstructuredGrower,
+    MagnitudeScorer,
+    RandomScorer,
 )
 
 
@@ -35,42 +37,8 @@ class SET(DSTMixin, BaseSparsifier):
         if defaults is None:
             defaults = dict()
         super().__init__(optimizer=optimizer, defaults=defaults)
-
-    def prune_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        weights: torch.Tensor,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            sparsity, mask, weights=weights
-        )
-        return mask
-
-    def grow_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        original_weights: torch.Tensor,
-    ):
-        old_mask = torch.clone(mask)
-        # Grow new weights
-        new_mask = UnstructuredRandomGrower.calculate_mask(
-            sparsity,
-            mask,
-        )
-        # Assign newly grown weights to self.grown_weights_init
-        torch.where(
-            new_mask != old_mask,
-            torch.full_like(
-                original_weights, fill_value=self.grown_weights_init
-            ),
-            original_weights,
-        )
-        # Overwrite old mask
-        mask.data = new_mask.data
+        self.pruner = UnstructuredPruner(scorer=MagnitudeScorer)
+        self.grower = UnstructuredGrower(scorer=RandomScorer)
 
     def _step(self) -> bool:
         _topo_updated = False
