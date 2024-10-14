@@ -1,18 +1,12 @@
 from typing import Any
 import torch
 
-from sparsimony.mask_calculators.base import (
-    RandomGrower,
-    RandomPruner,
-    MagnitudePruner,
-    GradientGrower,
-    FineGrainedPruner,
-    FineGrainedGrower,
-)
+from .base import FineGrainedPruner, FineGrainedGrower, ABCMaskCalculator
+from .scorers import RandomScorer, MagnitudeScorer, ABCScorer
 from sparsimony.utils import view_tensors_as, view_tensors_as_neurons
 
 
-class FFIRandomPruner(FineGrainedPruner, RandomPruner):
+class FFIPruner(FineGrainedPruner):
     _TILE_VIEW = "neuron"
 
     @classmethod
@@ -21,16 +15,17 @@ class FFIRandomPruner(FineGrainedPruner, RandomPruner):
         cls,
         sparsity: float,
         mask: torch.Tensor,
+        values: torch.Tensor | None = None,
         score_override: torch.Tensor | None = None,
         *args,
         **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
-            sparsity, mask, score_override, *args, **kwargs
+            sparsity, mask, values, score_override, *args, **kwargs
         )
 
 
-class FFIMagnitudePruner(FineGrainedPruner, MagnitudePruner):
+class FFIGrower(FineGrainedGrower):
     _TILE_VIEW = "neuron"
 
     @classmethod
@@ -39,66 +34,35 @@ class FFIMagnitudePruner(FineGrainedPruner, MagnitudePruner):
         cls,
         sparsity: float,
         mask: torch.Tensor,
+        values: torch.Tensor | None = None,
         score_override: torch.Tensor | None = None,
         *args,
         **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
-            sparsity, mask, score_override, *args, **kwargs
+            sparsity, mask, values, score_override, *args, **kwargs
         )
 
 
-class FFIRandomGrower(FineGrainedGrower, RandomGrower):
-    _TILE_VIEW = "neuron"
+class NMCalculatorBase(ABCMaskCalculator):
 
-    @classmethod
-    @view_tensors_as_neurons
-    def calculate_mask(
-        cls,
-        sparsity: float,
-        mask: torch.Tensor,
-        score_override: torch.Tensor | None = None,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        return super().calculate_mask(
-            sparsity, mask, score_override, *args, **kwargs
-        )
+    def __init__(self, scorer: ABCScorer):
+        super().__init__(scorer)
 
-
-class FFIGradientGrower(FineGrainedGrower, GradientGrower):
-    _TILE_VIEW = "neuron"
-
-    @classmethod
-    @view_tensors_as_neurons
-    def calculate_mask(
-        cls,
-        sparsity: float,
-        mask: torch.Tensor,
-        score_override: torch.Tensor | None = None,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        return super().calculate_mask(
-            sparsity, mask, score_override, *args, **kwargs
-        )
-
-
-class NMCalculatorBase:
-    def __init__(
-        self,
-        n: int,
-        m: int,
-        pad: bool = False,
-        padding_dim: int = 1,
-        permute_conv_to_nhwc: bool = True,
-    ):
-        self.n = n
-        self.m = m
-        self.pad = pad
-        self.padding_dim = padding_dim
-        self.permute_conv_to_nhwc = permute_conv_to_nhwc
-        self._TILE_VIEW = (-1, self.m)
+    # def __init__(
+    #     self,
+    #     n: int,
+    #     m: int,
+    #     pad: bool = False,
+    #     padding_dim: int = 1,
+    #     permute_conv_to_nhwc: bool = True,
+    # ):
+    #     self.n = n
+    #     self.m = m
+    #     self.pad = pad
+    #     self.padding_dim = padding_dim
+    #     self.permute_conv_to_nhwc = permute_conv_to_nhwc
+    #     self._TILE_VIEW = (-1, self.m)
 
     def calculate_mask(
         self,

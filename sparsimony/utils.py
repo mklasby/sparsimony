@@ -1,3 +1,4 @@
+import logging
 from typing import Tuple, Callable, Dict, Any
 import functools
 from math import prod
@@ -10,6 +11,8 @@ from sparsimony.parametrization.fake_sparsity import (
     FakeSparsity,
     FakeSparsityDenseGradBuffer,
 )
+
+_logger = logging.getLogger(__name__)
 
 
 def get_mask(
@@ -277,3 +280,61 @@ def pad_tensor_to_tile_view(
         )
     out = F.pad(t, pad, "constant", value)
     return out
+
+
+from contextlib import contextmanager, AbstractContextManager
+from typing import List, Generator
+import logging
+
+
+def _get_neuron_tile_size(*tensors: torch.Tensor) -> Tuple[int]:
+    return (-1, tensors[0].shape[-1])
+
+
+def _verify_tensors_args(*tensors: torch.Tensor) -> None:
+    shapes = []
+    for t in tensors:
+        shapes.append(t.shape)
+    for shape in shapes:
+        if shape != shape[0]:
+            raise RuntimeError(
+                "All tensors passed to mask_calculators.calculate_mask must be "
+                "of same shape!"
+            )
+
+
+@torch.no_grad()
+@contextmanager
+def view_tensors_as(
+    *tensors: torch.Tensor,
+    tile_size: Tuple[int] | int | str,
+    # pad: bool = False,
+    # padding_dim: int = 1,
+    # permute_conv_to_nhwc: bool = False,
+) -> Generator[List[torch.Tensor], None, None]:
+    try:
+        _verify_tensors_args(*tensors)
+        _NAMED_TILE_SIZES = {"neuron": _get_neuron_tile_size}
+        if isinstance(tile_size, int):
+            tile_size = (1, tile_size)
+        elif isinstance(tile_size, str):
+            tile_size = _NAMED_TILE_SIZES[tile_size](*tensors)
+        original_shape = tensors[0].shape
+        reshaped_tensors = []
+        for t in tensors:
+            reshaped_tensors.append(t.view(tile_size))
+        yield reshaped_tensors
+
+    except RuntimeError as e:
+        if "shape" in str(e):
+            msg = (
+                f"Invalid tile_size ({tile_size}) for tensor shape "
+                f"({tensors[0].shape}) detected in "
+                f"{view_tensors_as.__name__}"
+            )
+            _logger.error(msg)
+        raise e
+
+    finally:
+        for idx, t in enumerate(reshaped_tensors):
+            reshaped_tensors[idx] = t.view(original_shape)
