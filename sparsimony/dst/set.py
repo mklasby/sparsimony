@@ -79,4 +79,4 @@ class SET(DSTMixin, BaseSparsifier):
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
             weights = getattr(config["module"], config["tensor_name"])
-            self.prune_mask(config["sparsity"], mask, weights)
+            self.prune_mask(config["sparsity"], mask, values=weights)

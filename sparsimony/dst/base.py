@@ -73,11 +73,11 @@ class DSTMixin(ABC):
         self,
         sparsity: float,
         mask: torch.Tensor,
-        weights: torch.Tensor,
+        values: torch.Tensor,
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        mask.data = self.pruner.calculate_mask(sparsity, mask, values=weights)
+        mask.data = self.pruner.calculate_mask(sparsity, mask, values=values)
         return mask
 
     def grow_mask(
@@ -85,13 +85,11 @@ class DSTMixin(ABC):
         sparsity: float,
         mask: torch.Tensor,
         original_weights: torch.Tensor,
+        values: torch.Tensor | None = None,
     ):
         old_mask = torch.clone(mask)
         # Grow new weights
-        new_mask = self.grower.calculate_mask(
-            sparsity,
-            mask,
-        )
+        new_mask = self.grower.calculate_mask(sparsity, mask, values)
         # Assign newly grown weights to self.grown_weights_init
         torch.where(
             new_mask != old_mask,
