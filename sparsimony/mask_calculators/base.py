@@ -27,8 +27,8 @@ class ABCMaskCalculator(ABC):
         self,
         sparsity: float,
         mask: torch.Tensor,
-        score_override: Optional[torch.Tensor] = None,
         values: Optional[torch.Tensor] = None,
+        score_override: Optional[torch.Tensor] = None,
         *args,
         **kwargs,
     ) -> torch.Tensor: ...
@@ -76,6 +76,7 @@ class BasePruner(ABCMaskCalculator):
         self,
         sparsity: float,
         mask: torch.Tensor,
+        values: Optional[torch.Tensor] = None,
         score_override: Optional[torch.Tensor] = None,
         *args,
         **kwargs,
@@ -83,7 +84,9 @@ class BasePruner(ABCMaskCalculator):
         score_override = self.scorer.init_score_override(mask, score_override)
         n_drop = self.calculate_n_drop(mask, sparsity)
         candidate_tiles = self.scorer.candidate_tiles(score_override)
-        scores = self.scorer.score(*args, **kwargs)
+        if values is None:
+            values = mask.clone().detach().to(torch.float)
+        scores = self.scorer.score(values, *args, **kwargs)
         scores = self._override_scores(scores, score_override)
         self.scorer.all_reduce_scores(scores)  # TODO: Check what NaNs do
         mask[candidate_tiles] = self._calculate_mask(
@@ -219,6 +222,7 @@ class BaseGrower(ABCMaskCalculator):
         self,
         sparsity: float,
         mask: torch.Tensor,
+        values: Optional[torch.Tensor] = None,
         score_override: Optional[torch.Tensor] = None,
         *args,
         **kwargs,
@@ -226,11 +230,14 @@ class BaseGrower(ABCMaskCalculator):
         score_override = self.scorer.init_score_override(mask, score_override)
         n_grow = self._calculate_n_grow(mask, sparsity)
         candidate_tiles = self.scorer.candidate_tiles(score_override)
-        scores = self.scorer.score(*args, **kwargs)
+        if values is None:
+            values = mask.clone().detach().to(torch.float)
+        scores = self.scorer.score(values, *args, **kwargs)
         scores = self._override_scores(scores, score_override)
         self.scorer.all_reduce_scores(scores)  # TODO: Check what NaNs do
         mask[candidate_tiles] = self._calculate_mask(
             n_grow,
+            sparsity,
             mask[candidate_tiles],
             scores[candidate_tiles],
         )
