@@ -3,6 +3,8 @@ from .scorers import (
     MagnitudeScorer,
     SequentialScorer,
     TopKElementScorer,
+    NMStructureScorer,
+    AblatedTileScorer,
 )
 from .unstructured import (
     UnstructuredGrower,
