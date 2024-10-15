@@ -337,6 +337,7 @@ class DSTMixin(ABC):
             "Re-init method for sparse weights during .prepare(): "
             f"{init_method}\n"
             f"Step No.: {self._step_count}\n"
+            # TODO: adjust for skipped mods/layers
             f"Global Sparsity Target: {self.sparsity}\n"
             f"Global Sparsity Actual: {global_sparsity}\n"
             f"Layerwise Sparsity Targets: {layerwise_sparsity_target}\n"

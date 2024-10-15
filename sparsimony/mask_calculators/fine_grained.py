@@ -78,6 +78,7 @@ class NMCalculatorBase(ABCMaskCalculator):
                 f"Sparsity value of {sparsity} passed to N:M calculator, mask "
                 f"may not conform to {self.n}:{self.m} depending on sparsity."
             )
+        wrapped_func = super().calculate_mask
 
         @view_tensors_as(
             self._TILE_VIEW,
@@ -86,8 +87,7 @@ class NMCalculatorBase(ABCMaskCalculator):
             self.permute_conv_to_nhwc,
         )
         def reshaped_calc_mask(mask, score_override, *args, **kwargs):
-            sparsity = 1 - (self.n / self.m)
-            return super().calculate_mask(
+            return wrapped_func(
                 sparsity,
                 mask,
                 score_override,

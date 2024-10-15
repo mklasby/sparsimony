@@ -12,7 +12,7 @@ from sparsimony.schedulers.base import (
     CosineDecayScheduler,
 )
 from sparsimony.dst.rigl import RigL
-from sparsimony.dst.srigl import SRigL, SRigLTwoFour  # noqa
+from sparsimony.dst.srigl import SRigL, NMSRigL  # noqa
 from sparsimony.dst.set import SET
 from sparsimony.dst.gmp import GMP
 from sparsimony.dst.static import StaticMagnitudeSparsifier
@@ -165,7 +165,7 @@ def srigl_two_four(
     excluded_types: str | None | List[str] = "Conv2d",
     excluded_mod_name_regexs: str | None | List[str] = "classifier",
 ) -> RigL:
-    """Return SRigLTwoFour sparsifier.
+    """Return NMSRigL sparsifier.
 
     Args:
         optimizer (torch.optim.Optimizer): Previously initialized optimizer for
@@ -188,7 +188,7 @@ def srigl_two_four(
     Returns:
         RigL: Initialized rigl sparsifier.
     """
-    return SRigLTwoFour(
+    return NMSRigL(
         scheduler=CosineDecayScheduler(
             quantity=pruning_ratio,
             t_end=t_end,

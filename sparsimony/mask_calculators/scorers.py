@@ -130,6 +130,7 @@ class RandomScorer(ABCScorer):
 
 
 class AblatedTileScorer(ABCScorer):
+    # TODO: Can use NM below instead?
 
     @classmethod
     def score(
@@ -155,6 +156,42 @@ class AblatedTileScorer(ABCScorer):
         if _reshape:
             mask = cls._reshape_t_as_view(mask, _orig_shape)
             score_override = cls._reshape_t_as_view(score_override, _orig_shape)
+        return score_override
+
+    @classmethod
+    def _reshape_t_as_view(cls, t: torch.Tensor, view: str | Tuple[int]):
+        if view == "neuron":
+            return view_tensor_as_neuron(t)
+        elif isinstance(view, Tuple):
+            return t.view(view)
+        else:
+            raise NotImplementedError(f"Tile view {view} not supported!")
+
+
+class NMStructureScorer(ABCScorer):
+
+    @classmethod
+    def score(
+        cls,
+        mask: torch.Tensor,
+        n: int,
+        m: int,
+        score_override: torch.Tensor | None = None,
+        *args,
+        **kwargs,
+    ):
+        # TODO: Use context manager for reshaping
+        tile_view = (-1, m)
+        score_override = cls.init_score_override(mask, score_override)
+        _orig_shape = mask.shape
+        mask = cls._reshape_t_as_view(mask, tile_view)
+        score_override = cls._reshape_t_as_view(score_override, tile_view)
+        completed_tile_idx = torch.argwhere(
+            torch.count_nonzero(mask, dim=-1) == n
+        ).flatten()
+        score_override[completed_tile_idx] = ScoreOverrides.INELIGIBLE
+        mask = cls._reshape_t_as_view(mask, _orig_shape)
+        score_override = cls._reshape_t_as_view(score_override, _orig_shape)
         return score_override
 
     @classmethod
