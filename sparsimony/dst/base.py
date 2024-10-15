@@ -14,7 +14,6 @@ from sparsimony.utils import (
     get_mask,
     get_original_tensor,
     get_parametrization,
-    cast_mask,
 )
 from sparsimony.nn_init import sparse_init
 from sparsimony.mask_calculators import UnstructuredPruner, RandomScorer
@@ -73,11 +72,10 @@ class DSTMixin(ABC):
         self,
         sparsity: float,
         mask: torch.Tensor,
-        values: torch.Tensor,
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        mask.data = self.pruner.calculate_mask(sparsity, mask, values=values)
+        mask.data = self.pruner.calculate_mask(sparsity, mask, *args, **kwargs)
         return mask
 
     def grow_mask(
@@ -85,11 +83,12 @@ class DSTMixin(ABC):
         sparsity: float,
         mask: torch.Tensor,
         original_weights: torch.Tensor,
-        values: torch.Tensor | None = None,
+        *args,
+        **kwargs,
     ):
         old_mask = torch.clone(mask)
         # Grow new weights
-        new_mask = self.grower.calculate_mask(sparsity, mask, values)
+        new_mask = self.grower.calculate_mask(sparsity, mask, *args, **kwargs)
         # Assign newly grown weights to self.grown_weights_init
         torch.where(
             new_mask != old_mask,
@@ -196,7 +195,6 @@ class DSTMixin(ABC):
         self._logger.debug("Preparing masks...")
         super().prepare(model, sparse_config)
         self._initialize_masks()
-        _ = self._cast_masks(dtype=self._MASK_DTYPE)
         self._broadcast_masks()
         self.adjust_init_for_sparsity()
         self.zero_inactive_param_momentum_buffers()
@@ -398,11 +396,6 @@ class DSTMixin(ABC):
             ).count_nonzero()
             total_neurons += mask_flat.shape[0]
         return active_neurons / total_neurons
-
-    def _cast_masks(self, dtype: torch.dtype) -> torch.dtype:
-        for config in self.groups:
-            original_dtype = cast_mask(dtype=dtype, **config)
-        return original_dtype
 
 
 class GlobalPruningDataHelper:

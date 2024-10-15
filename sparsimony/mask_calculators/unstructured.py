@@ -15,13 +15,12 @@ class UnstructuredPruner(FineGrainedPruner):
         cls,
         sparsity: float,
         mask: torch.Tensor,
-        values: torch.Tensor | None = None,
         score_override: torch.Tensor | None = None,
         *args,
         **kwargs
     ) -> torch.Tensor:
         return super().calculate_mask(
-            sparsity, mask, values, score_override, *args, **kwargs
+            sparsity, mask, score_override, *args, **kwargs
         )
 
 
@@ -33,11 +32,10 @@ class UnstructuredGrower(FineGrainedGrower):
         self,
         sparsity: float,
         mask: torch.Tensor,
-        values: torch.Tensor | None = None,
         score_override: torch.Tensor | None = None,
         *args,
         **kwargs
     ) -> torch.Tensor:
         return super().calculate_mask(
-            sparsity, mask, values, score_override, *args, **kwargs
+            sparsity, mask, score_override, *args, **kwargs
         )

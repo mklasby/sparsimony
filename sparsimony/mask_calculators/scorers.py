@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from sparsimony.utils import view_tensor_as_neuron
 import torch
 import torch.distributed as dist
 
@@ -26,7 +27,6 @@ class ABCScorer(ABC):
     @abstractmethod
     def score(
         cls,
-        values: torch.Tensor,
         *args,
         **kwargs,
     ): ...
@@ -129,6 +129,101 @@ class RandomScorer(ABCScorer):
         return torch.abs(torch.rand_like(values)) + ScoreOverrides.EPS
 
 
+class AblatedTileScorer(ABCScorer):
+
+    @classmethod
+    def score(
+        cls,
+        mask: torch.Tensor,
+        score_override: torch.Tensor | None = None,
+        tile_view: None | str | Tuple[int] = None,
+        *args,
+        **kwargs,
+    ):
+        # TODO: Use context manager for reshaping
+        score_override = cls.init_score_override(mask, score_override)
+        _reshape = False
+        if tile_view is not None:
+            _reshape = True
+            _orig_shape = mask.shape
+            mask = cls._reshape_t_as_view(mask, tile_view)
+            score_override = cls._reshape_t_as_view(score_override, tile_view)
+        ablated_tile_idx = torch.argwhere(
+            torch.count_nonzero(mask, dim=-1) == 0
+        ).flatten()
+        score_override[ablated_tile_idx] = ScoreOverrides.INELIGIBLE
+        if _reshape:
+            mask = cls._reshape_t_as_view(mask, _orig_shape)
+            score_override = cls._reshape_t_as_view(score_override, _orig_shape)
+        return score_override
+
+    @classmethod
+    def _reshape_t_as_view(cls, t: torch.Tensor, view: str | Tuple[int]):
+        if view == "neuron":
+            return view_tensor_as_neuron(t)
+        elif isinstance(view, Tuple):
+            return t.view(view)
+        else:
+            raise NotImplementedError(f"Tile view {view} not supported!")
+
+
+# MetaScorers
+class TopKElementScorer(ABCScorer):
+    def __init__(self, scorer: ABCScorer):
+        self.scorer = scorer
+
+    def score(
+        self,
+        k: int,
+        largest: bool = True,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        scores = self.scorer.score(*args, **kwargs)
+        _, idx = torch.topk(scores.view(-1), k=k, dim=-1, largest=largest)
+        scores = torch.scatter(
+            torch.zeros_like(scores.view(-1)),
+            dim=-1,
+            index=idx,
+            src=torch.ones_like(scores.view(-1)),
+        ).view(scores.shape)
+        return scores
+
+
+class SequentialScorer(ABCScorer):
+    def __init__(
+        self,
+        scorers: List[ABCScorer],
+        agg_fn: Callable = torch.mean,
+    ):
+        self.scorers = scorers
+        self.agg_fn = agg_fn
+
+    def score(
+        self,
+        scorer_kwargs: List[Dict[Any, Any]],
+        *args,
+        **kwargs,
+    ) -> List[torch.Tensor]:
+        # TODO: Could return len(self.scores) dim tensor
+        # TODO: make constraints on agg_func more clear
+        scores = []
+        for scorer, scorer_kwargs in list(zip(self.scorers, scorer_kwargs)):
+            scores.append(scorer.score(**scorer_kwargs))
+        return self.agg_fn(scores)
+
+
+# class ScorerList(ABCScorer):
+#     def __init__(self, scorers: List[ABCScorer]):
+#         self.scorers = scorers
+
+#     def score(self, *args, **kwargs):
+#         for scorer in self.scorers:
+#             scorer =
+
+#         return super().score(*args, **kwargs)
+
+
 # class ThresholdPruner(BasePruner):
 #     @classmethod
 #     def get_scores(
@@ -146,39 +241,4 @@ class RandomScorer(ABCScorer):
 #             scores > score_threshold,
 #             torch.one_like(mask),
 #             torch.zeros_like(mask),
-#         )
-
-
-# class RandomGrower(BaseGrower):
-#     @classmethod
-#     def get_scores(
-#         cls, mask: torch.Tensor, candidate_tiles: torch.Tensor, *args,
-# **kwargs
-#     ):
-#         return torch.where(
-#             torch.logical_and(mask == 0, mask != cls._SCORE_FILL_VALUE),
-#             torch.abs(torch.rand_like(mask))
-#             + cls._EPS,  # small eps for avoiding 0s
-#             torch.full_like(mask, cls._SCORE_FILL_VALUE),
-#         )
-
-
-# class GradientGrower(BaseGrower):
-
-#     @classmethod
-#     def get_scores(
-#         cls,
-#         mask: torch.Tensor,
-#         candidate_tiles: torch.Tensor,
-#         grads: torch.Tensor | None,
-#         *args,
-#         **kwargs,
-#     ):
-#         if grads is None:
-#             # Randomly grow
-#             return RandomGrower.get_scores(mask, candidate_tiles)
-#         return torch.where(
-#             torch.logical_and(mask == 0, mask != cls._SCORE_FILL_VALUE),
-#             torch.abs(grads[candidate_tiles]),
-#             torch.full_like(mask, cls._SCORE_FILL_VALUE),
 #         )

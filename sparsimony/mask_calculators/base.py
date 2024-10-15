@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Callable, Optional
 import math
 import logging
 
@@ -9,8 +9,6 @@ from sparsimony.utils import calculate_per_tile_n_ones, view_tensors_as  # noqa
 from .scorers import ABCScorer
 
 
-# TODO: Mask as int. Overrides in parallel in score_override, can keep using
-#   floats potentially or pure sentinel values in score override
 # TODO: Score override as float so we can "patch" scores with overrides.
 
 
@@ -27,7 +25,6 @@ class ABCMaskCalculator(ABC):
         self,
         sparsity: float,
         mask: torch.Tensor,
-        values: Optional[torch.Tensor] = None,
         score_override: Optional[torch.Tensor] = None,
         *args,
         **kwargs,
@@ -76,7 +73,6 @@ class BasePruner(ABCMaskCalculator):
         self,
         sparsity: float,
         mask: torch.Tensor,
-        values: Optional[torch.Tensor] = None,
         score_override: Optional[torch.Tensor] = None,
         *args,
         **kwargs,
@@ -84,9 +80,7 @@ class BasePruner(ABCMaskCalculator):
         score_override = self.scorer.init_score_override(mask, score_override)
         n_drop = self.calculate_n_drop(mask, sparsity)
         candidate_tiles = self.scorer.candidate_tiles(score_override)
-        if values is None:
-            values = mask.clone().detach().to(torch.float)
-        scores = self.scorer.score(values, *args, **kwargs)
+        scores = self.scorer.score(*args, **kwargs)
         scores = self._override_scores(scores, score_override)
         self.scorer.all_reduce_scores(scores)  # TODO: Check what NaNs do
         mask[candidate_tiles] = self._calculate_mask(
@@ -203,13 +197,17 @@ class StructuredPruner(BasePruner):
         mask: torch.Tensor,
         scores: torch.Tensor,
         aggregate_norm_ord: str | int = 2,
+        agg_fn: Callable | None = None,
         *args,
         **kwargs,
     ) -> torch.Tensor:
         n_tiles_to_drop = math.ceil(n / mask.shape[-1])
         if not self._verify_mask_update(n_tiles_to_drop):
             return mask
-        scores = torch.linalg.norm(scores, ord=aggregate_norm_ord, dim=1)
+        if agg_fn is None:
+            scores = torch.linalg.norm(scores, ord=aggregate_norm_ord, dim=1)
+        else:
+            scores = agg_fn(scores)
         _, indices = torch.topk(scores, k=n_tiles_to_drop, largest=False)
         # zero out all elements in tile for structured pruning
         mask[indices] = 0
@@ -222,7 +220,6 @@ class BaseGrower(ABCMaskCalculator):
         self,
         sparsity: float,
         mask: torch.Tensor,
-        values: Optional[torch.Tensor] = None,
         score_override: Optional[torch.Tensor] = None,
         *args,
         **kwargs,
@@ -230,9 +227,7 @@ class BaseGrower(ABCMaskCalculator):
         score_override = self.scorer.init_score_override(mask, score_override)
         n_grow = self._calculate_n_grow(mask, sparsity)
         candidate_tiles = self.scorer.candidate_tiles(score_override)
-        if values is None:
-            values = mask.clone().detach().to(torch.float)
-        scores = self.scorer.score(values, *args, **kwargs)
+        scores = self.scorer.score(*args, **kwargs)
         scores = self._override_scores(scores, score_override)
         self.scorer.all_reduce_scores(scores)  # TODO: Check what NaNs do
         mask[candidate_tiles] = self._calculate_mask(

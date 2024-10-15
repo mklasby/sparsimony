@@ -1,7 +1,9 @@
 import logging
-from typing import Tuple, Callable, Dict, Any
+from typing import Tuple, Callable, Dict, Any, List, Generator  # noqa
 import functools
 from math import prod
+from contextlib import contextmanager  # noqa
+import math
 
 import torch
 import torch.nn as nn
@@ -21,18 +23,8 @@ def get_mask(
     return get_parametrization(module, tensor_name, param_idx).mask
 
 
-# TODO: remove going to keep things booly
-def cast_mask(
-    dtype: torch.dtype,
-    module: nn.Module,
-    tensor_name: str = "weight",
-    param_idx: int = 0,
-    **kwargs,
-) -> torch.dtype:
-    parametrization = get_parametrization(module, tensor_name, param_idx)
-    original_dtype = parametrization.mask.dtype
-    parametrization.mask = parametrization.mask.to(dtype=dtype)
-    return original_dtype
+def get_n_ones(sparsity: float, mask: torch.Tensor) -> int:
+    return math.floor((1 - sparsity) * mask.numel())
 
 
 def get_parametrization(
@@ -123,6 +115,13 @@ def transform_args_kwargs_tensors(
         k: op(v) if isinstance(v, torch.Tensor) else v
         for k, v in kwargs.items()
     }
+    # TODO: Make recursive search more general, cover Tuples too
+    for key in kwargs:  # recurse into kwargs looking for tensors
+        if isinstance(kwargs[key], dict):
+            _, kwargs[key] = transform_args_kwargs_tensors(op, **kwargs[key])
+        if isinstance(kwargs[key], list):
+            for idx, item in enumerate(kwargs[key]):
+                _, kwargs[key][idx] = transform_args_kwargs_tensors(op, **item)
     return args, kwargs
 
 
@@ -282,59 +281,68 @@ def pad_tensor_to_tile_view(
     return out
 
 
-from contextlib import contextmanager, AbstractContextManager
-from typing import List, Generator
-import logging
+# TODO: Can use below to convert tensors in context manager vs. decorated func
+# TODO: convert return to *tensors, *args, **kwargs
+# TODO: Consider using AbstractContextManager to add some helpers to namespace
+# def _get_neuron_tile_size(*tensors: torch.Tensor) -> Tuple[int]:
+#     t = tensors[0]
+#     original_size = t.shape
+#     if len(original_size) == 2:
+#         return t.view(size=(-1, original_size[-1]))
+#     elif len(original_size) == 4:
+#         # conv
+#         return t.view(size=(-1, prod(original_size[1:])))
+#     else:
+#         raise NotImplementedError(
+#             "Sparsimony currently only support parameterized tensors of dim"
+#             " 2 or 4"
+#         )
 
 
-def _get_neuron_tile_size(*tensors: torch.Tensor) -> Tuple[int]:
-    return (-1, tensors[0].shape[-1])
+# def _verify_tensors_args(*tensors: torch.Tensor) -> None:
+#     shapes = []
+#     for t in tensors:
+#         shapes.append(t.shape)
+#     for shape in shapes:
+#         if shape != shape[0]:
+#             raise RuntimeError(
+#                 "All tensors passed to mask_calculators.calculate_mask must be "  # noqa
+#                 "of same shape!"
+#             )
 
 
-def _verify_tensors_args(*tensors: torch.Tensor) -> None:
-    shapes = []
-    for t in tensors:
-        shapes.append(t.shape)
-    for shape in shapes:
-        if shape != shape[0]:
-            raise RuntimeError(
-                "All tensors passed to mask_calculators.calculate_mask must be "
-                "of same shape!"
-            )
+# @torch.no_grad()
+# @contextmanager
+# def view_tensors_as(
+#     *tensors: torch.Tensor,
+#     tile_size: Tuple[int] | int | str,
+#     # pad: bool = False,
+#     # padding_dim: int = 1,
+#     # permute_conv_to_nhwc: bool = False,
+# ) -> Generator[List[torch.Tensor], None, None]:
+#     try:
+#         _verify_tensors_args(*tensors)
+#         _NAMED_TILE_SIZES = {"neuron": _get_neuron_tile_size}
+#         if isinstance(tile_size, int):
+#             tile_size = (1, tile_size)
+#         elif isinstance(tile_size, str):
+#             tile_size = _NAMED_TILE_SIZES[tile_size](*tensors)
+#         original_shape = tensors[0].shape
+#         reshaped_tensors = []
+#         for t in tensors:
+#             reshaped_tensors.append(t.view(tile_size))
+#         yield reshaped_tensors
 
+#     except RuntimeError as e:
+#         if "shape" in str(e):
+#             msg = (
+#                 f"Invalid tile_size ({tile_size}) for tensor shape "
+#                 f"({tensors[0].shape}) detected in "
+#                 f"{view_tensors_as.__name__}"
+#             )
+#             _logger.error(msg)
+#         raise e
 
-@torch.no_grad()
-@contextmanager
-def view_tensors_as(
-    *tensors: torch.Tensor,
-    tile_size: Tuple[int] | int | str,
-    # pad: bool = False,
-    # padding_dim: int = 1,
-    # permute_conv_to_nhwc: bool = False,
-) -> Generator[List[torch.Tensor], None, None]:
-    try:
-        _verify_tensors_args(*tensors)
-        _NAMED_TILE_SIZES = {"neuron": _get_neuron_tile_size}
-        if isinstance(tile_size, int):
-            tile_size = (1, tile_size)
-        elif isinstance(tile_size, str):
-            tile_size = _NAMED_TILE_SIZES[tile_size](*tensors)
-        original_shape = tensors[0].shape
-        reshaped_tensors = []
-        for t in tensors:
-            reshaped_tensors.append(t.view(tile_size))
-        yield reshaped_tensors
-
-    except RuntimeError as e:
-        if "shape" in str(e):
-            msg = (
-                f"Invalid tile_size ({tile_size}) for tensor shape "
-                f"({tensors[0].shape}) detected in "
-                f"{view_tensors_as.__name__}"
-            )
-            _logger.error(msg)
-        raise e
-
-    finally:
-        for idx, t in enumerate(reshaped_tensors):
-            reshaped_tensors[idx] = t.view(original_shape)
+#     finally:
+#         for idx, t in enumerate(reshaped_tensors):
+#             reshaped_tensors[idx] = t.view(original_shape)
