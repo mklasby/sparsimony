@@ -69,7 +69,7 @@ class SET(DSTMixin, BaseSparsifier):
             weights = getattr(module, tensor_name)
             original_weights = get_original_tensor(module, tensor_name)
             target_sparsity = self.get_sparsity_from_prune_ratio(prune_ratio)
-            self.prune_mask(target_sparsity, mask, weights)
+            self.prune_mask(target_sparsity, mask, values=weights)
             self.grow_mask(sparsity, mask, original_weights)
             self._assert_sparsity_level(mask, sparsity)
 
