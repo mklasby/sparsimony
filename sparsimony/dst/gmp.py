@@ -88,7 +88,7 @@ class GMP(DSTMixin, BaseSparsifier):
             mask.data = torch.ones_like(mask)
         else:
             weights = getattr(module, tensor_name)
-            self.prune_mask(sparsity, mask, weights)
+            self.prune_mask(sparsity, mask, values=weights)
             self._assert_sparsity_level(mask, sparsity)
 
     def _global_step(self) -> None:
@@ -98,7 +98,7 @@ class GMP(DSTMixin, BaseSparsifier):
         self.prune_mask(
             self.sparsity,
             global_data_helper.masks,
-            global_data_helper.sparse_weights,
+            values=global_data_helper.sparse_weights,
         )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()

@@ -118,8 +118,8 @@ class RigL(DSTMixin, BaseSparsifier):
             target_sparsity = self.get_sparsity_from_prune_ratio(
                 mask, prune_ratio
             )
-            self.prune_mask(target_sparsity, mask, weights)
-            self.grow_mask(sparsity, mask, original_weights, dense_grads)
+            self.prune_mask(target_sparsity, mask, values=weights)
+            self.grow_mask(sparsity, mask, original_weights, values=dense_grads)
             self._assert_sparsity_level(mask, sparsity)
 
     def _global_step(self, prune_ratio: float) -> None:
@@ -141,13 +141,13 @@ class RigL(DSTMixin, BaseSparsifier):
         self.prune_mask(
             target_sparsity,
             global_data_helper.masks,
-            global_data_helper.sparse_weights,
+            values=global_data_helper.sparse_weights,
         )
         self.grow_mask(
             self.sparsity,
             global_data_helper.masks,
             global_data_helper.original_weights,
-            dense_grads,
+            values=dense_grads,
         )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()
