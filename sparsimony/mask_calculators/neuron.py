@@ -56,8 +56,7 @@ class NeuronGrower(StructuredGrower):
 
 
 class NeuronSRigLPruner(StructuredPruner):
-    # TODO: Potentially extract a class / utility func to count salient elements
-    # per tile by passing two or more scorers.
+    # TODO: Move scorer into this init?
     _TILE_VIEW = "neuron"
 
     @view_tensors_as_neurons
@@ -70,33 +69,35 @@ class NeuronSRigLPruner(StructuredPruner):
         *args,
         **kwargs
     ) -> torch.Tensor:
-        return super().calculate_mask(
-            sparsity, mask, score_override, gamma_sal, *args, **kwargs
+        score_override = self.scorer.init_score_override(mask, score_override)
+        candidate_tiles = self.scorer.candidate_tiles(score_override)
+        scores = self.scorer.score(*args, **kwargs)
+        # scores = self._override_scores(scores, score_override)
+        self.scorer.all_reduce_scores(scores)  # TODO: Check what NaNs do
+        mask[candidate_tiles] = self._calculate_mask(
+            mask[candidate_tiles],
+            scores[candidate_tiles],
+            gamma_sal=gamma_sal,
         )
+        return mask
 
     def _calculate_mask(
         self,
-        n: int,
         mask: torch.Tensor,
         scores: torch.Tensor,
         gamma_sal: float = 0.3,
         *args,
         **kwargs
     ) -> torch.Tensor:
+        # TODO: Try passing score override for neurons already ablate
         # Get count of salient elements per tile
         saliency_count = torch.count_nonzero(scores, dim=-1)
-        neuron_score = torch.zeros_like(mask)  # per neuron
+        # How many ones per tile during training (not based on current sparsity
+        # to prune to)
+        ffi_ones_target = math.floor(mask.sum() / mask.shape[0])
         # We divide n_ones by FFI target given mask shape
-        # TODO: Try passing score override for neurons already ablated
-        ffi_ones_target = math.floor(n / mask.shape[0])
-        # TODO: Vectorize, potentially with vmap
-        for n_idx, salient_els in enumerate(saliency_count):
-            neuron_score[n_idx] = salient_els / ffi_ones_target
-        neuron_idx_to_ablate = torch.argwhere(neuron_score < gamma_sal)[
-            :, 0
-        ].unique()
+        neuron_idx_to_ablate = (saliency_count / ffi_ones_target) < gamma_sal
         mask[neuron_idx_to_ablate] = 0
-
         return mask
 
     # @view_tensors_as_neurons
