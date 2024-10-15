@@ -20,7 +20,7 @@ from sparsimony.mask_calculators import (
     SequentialScorer,
     TopKElementScorer,
     MagnitudeScorer,
-    NeuronPruner,
+    NeuronSRigLPruner,
 )
 
 
@@ -56,13 +56,13 @@ class SRigL(DSTMixin, BaseSparsifier):
             **kwargs,
         )
         if self.gamma_sal is not None:  # dynamic ablation
-
+            # TODO: Override scores wipes out our inactive scores
             def agg_fn(scores: List[torch.Tensor]):
                 scores = tuple(scores)
                 return torch.logical_or(*scores)
 
             self.pruning_calcs = [
-                NeuronPruner(
+                NeuronSRigLPruner(
                     scorer=SequentialScorer(
                         [
                             TopKElementScorer(MagnitudeScorer),

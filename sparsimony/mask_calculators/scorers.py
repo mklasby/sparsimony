@@ -17,7 +17,7 @@ class ScoreOverrides:
     MAX_SCORE = float("inf")  # fill for inactive param scores
     MIN_SCORE = -float("inf")  # fill for active param scores
     PADDING = -42.0  # sentinel for padded tensors, currently unused
-    INELIGIBLE = float("NaN")  # For skipping tiles entirely
+    INELIGIBLE = -99.0  # For skipping tiles entirely
     EPS = torch.finfo(torch.float).smallest_normal
 
 
