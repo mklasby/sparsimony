@@ -9,9 +9,7 @@ from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsity
 from sparsimony.utils import get_mask
 from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
-from sparsimony.mask_calculators import (
-    UnstructuredMagnitudePruner,
-)
+from sparsimony.mask_calculators import UnstructuredPruner, MagnitudeScorer
 
 
 class GMP(DSTMixin, BaseSparsifier):
@@ -36,17 +34,7 @@ class GMP(DSTMixin, BaseSparsifier):
         super().__init__(
             optimizer=optimizer, defaults=defaults, *args, **kwargs
         )
-
-    def prune_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        weights: torch.Tensor,
-    ) -> torch.Tensor:
-        mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            sparsity, mask, weights=weights
-        )
-        return mask
+        self.pruner = UnstructuredPruner(MagnitudeScorer)
 
     def grow_mask(
         self,
@@ -84,8 +72,8 @@ class GMP(DSTMixin, BaseSparsifier):
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
             weights = weights = getattr(config["module"], config["tensor_name"])
-            mask.data = UnstructuredMagnitudePruner.calculate_mask(
-                config["sparsity"], mask, weights=weights
+            mask.data = self.pruner.calculate_mask(
+                config["sparsity"], mask, values=weights
             )
 
     def update_mask(
@@ -100,7 +88,7 @@ class GMP(DSTMixin, BaseSparsifier):
             mask.data = torch.ones_like(mask)
         else:
             weights = getattr(module, tensor_name)
-            self.prune_mask(sparsity, mask, weights)
+            self.prune_mask(sparsity, mask, values=weights)
             self._assert_sparsity_level(mask, sparsity)
 
     def _global_step(self) -> None:
@@ -110,7 +98,7 @@ class GMP(DSTMixin, BaseSparsifier):
         self.prune_mask(
             self.sparsity,
             global_data_helper.masks,
-            global_data_helper.sparse_weights,
+            values=global_data_helper.sparse_weights,
         )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()

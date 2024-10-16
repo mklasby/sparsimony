@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import List, Optional, Dict, Any
 from math import prod
 
 import torch
@@ -8,19 +8,21 @@ from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsityDenseGradBuffer
-from sparsimony.utils import get_mask, get_parametrization
+from sparsimony.utils import get_mask, get_n_ones, get_parametrization
 from sparsimony.dst.base import DSTMixin
 from sparsimony.mask_calculators import (
-    FFIRandomPruner,
-    FFIGradientGrower,
-    FFIMagnitudePruner,
-    NMGradientGrower,
-    NMRandomPruner,
-    NMMagnitudePruner,
-    UnstructuredMagnitudePruner,
-    NeuronMagnitudePruner,
+    UnstructuredPruner,
+    FFIPruner,
+    FFIGrower,
+    AblatedTileScorer,
+    RandomScorer,
     HierarchicalMaskCalculator,
+    SequentialScorer,
+    TopKElementScorer,
+    MagnitudeScorer,
     NeuronSRigLPruner,
+    NMGrower,
+    NMPruner,
 )
 
 
@@ -37,6 +39,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         init_method: Optional[str] = "grad_flow",
         random_mask_init: bool = False,
         gamma_sal: None | float = 0.3,
+        no_ablation_last_layer: bool = True,
         *args,
         **kwargs,
     ):
@@ -46,6 +49,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         self.grown_weights_init = grown_weights_init
         self.init_method = init_method
         self.gamma_sal = gamma_sal
+        self.no_ablation_last_layer = no_ablation_last_layer
         if defaults is None:
             defaults = dict(parametrization=FakeSparsityDenseGradBuffer)
         super().__init__(
@@ -55,6 +59,28 @@ class SRigL(DSTMixin, BaseSparsifier):
             *args,
             **kwargs,
         )
+        if self.gamma_sal is not None:  # dynamic ablation
+            # TODO: Override scores wipes out our inactive scores
+            def agg_fn(scores: List[torch.Tensor]):
+                scores = tuple(scores)
+                return torch.logical_or(*scores)
+
+            self.pruning_calcs = [
+                NeuronSRigLPruner(
+                    scorer=SequentialScorer(
+                        [
+                            TopKElementScorer(MagnitudeScorer),
+                            TopKElementScorer(MagnitudeScorer),
+                        ],
+                        agg_fn=agg_fn,
+                    )
+                ),
+                UnstructuredPruner(MagnitudeScorer),
+            ]
+        else:
+            self.pruner = UnstructuredPruner(MagnitudeScorer)
+        # TODO: Refactor to use ablatedTileScorer in hierarchical calc?
+        self.grower = FFIGrower(scorer=MagnitudeScorer)
 
     def prune_mask(
         self,
@@ -62,30 +88,31 @@ class SRigL(DSTMixin, BaseSparsifier):
         mask: torch.Tensor,
         weights: torch.Tensor,
         dense_grads: torch.Tensor,
+        gamma_sal: float,
         *args,
         **kwargs,
     ) -> torch.Tensor:
         if self.gamma_sal is None:
-            # Specify 50% sparsity per level
-            # TODO: Specify a distribution for this?
-            calcs = [NeuronMagnitudePruner, UnstructuredMagnitudePruner]
-            sparsities = [sparsity / i for i in range(len(calcs), 0, -1)]
-            calc_kwargs = [
-                dict(weights=weights),
-                dict(weights=weights),
-            ]
-        else:
-            # Enable gamma_sal driven ablation
-            calcs = [NeuronSRigLPruner, UnstructuredMagnitudePruner]
+            return super().prune_mask(
+                sparsity, mask, values=weights, *args, **kwargs
+            )
+        else:  # Dynamic ablation
             sparsities = [sparsity, sparsity]
+            # Need K, values for both magnitude scorers
+            k = get_n_ones(sparsity, mask)
             calc_kwargs = [
-                dict(weights=weights, grads=dense_grads),
-                dict(weights=weights),
+                dict(
+                    scorer_kwargs=[
+                        dict(k=k, values=weights),
+                        dict(k=k, values=dense_grads),
+                    ]
+                ),
+                dict(values=weights),
             ]
-        mask.data = HierarchicalMaskCalculator.calculate_mask(
-            sparsities, mask, calcs, calc_kwargs
-        )
-        return mask
+            mask.data = HierarchicalMaskCalculator.calculate_mask(
+                sparsities, mask, self.pruning_calcs, calc_kwargs
+            )
+            return mask
 
     def grow_mask(
         self,
@@ -94,29 +121,20 @@ class SRigL(DSTMixin, BaseSparsifier):
         original_weights: torch.Tensor,
         dense_grads: torch.Tensor,
     ) -> torch.Tensor:
-        old_mask = mask.clone()
-        score_override = HierarchicalMaskCalculator._get_score_override(
-            mask, tile_view=NeuronMagnitudePruner._TILE_VIEW
-        )
-        # Grow new weights
-        new_mask = FFIGradientGrower.calculate_mask(
+        if self.gamma_sal is not None:
+            score_override = AblatedTileScorer.score(
+                mask,
+                tile_view="neuron",
+            )
+        else:
+            score_override = None
+        return super().grow_mask(
             sparsity,
             mask,
-            grads=dense_grads,
-            score_override=score_override,
-        )
-        assert new_mask.data_ptr() != old_mask.data_ptr()
-        # Assign newly grown weights to self.grown_weights_init in place
-        original_weights.data = torch.where(
-            new_mask != old_mask,
-            torch.full_like(
-                original_weights, fill_value=self.grown_weights_init
-            ),
             original_weights,
+            score_override=score_override,
+            values=dense_grads,
         )
-        # Overwrite old mask
-        mask.data = new_mask.data
-        return mask
 
     def _step(self) -> bool:
         _topo_updated = False
@@ -125,7 +143,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         if prune_ratio is not None:
             self._logger.info(f"Updating topology at step {self._step_count}")
             self._distribute_sparsity(self.sparsity)
-            for config in self.groups:
+            for idx, config in enumerate(self.groups):
                 parametrization = get_parametrization(
                     config["module"], config["tensor_name"]
                 )
@@ -136,6 +154,9 @@ class SRigL(DSTMixin, BaseSparsifier):
                     continue
                 config["prune_ratio"] = prune_ratio
                 config["dense_grads"] = self._get_dense_grads(**config)
+                config["gamma_sal"] = self.gamma_sal
+                if idx == len(self.groups) - 1 and self.no_ablation_last_layer:
+                    config["gamma_sal"] = None
                 self.update_mask(**config)
             self._broadcast_masks()
             _topo_updated = True
@@ -165,28 +186,16 @@ class SRigL(DSTMixin, BaseSparsifier):
             # Prune to target sparsity for this step
             weights = getattr(config["module"], config["tensor_name"])
             mask = get_mask(config["module"], config["tensor_name"])
-            if self.gamma_sal is None:
-                calcs = [NeuronMagnitudePruner]
-                calc_kwargs = [
-                    dict(weights=weights),
-                ]
-                sparsities = [
-                    config["sparsity"] / i for i in range(len(calcs), 0, -1)
-                ]
-            else:
-                calcs = []
-                calc_kwargs = []
-                sparsities = [config["sparsity"]]
             if self.random_mask_init:
                 # Randomly prune for step 1
-                calcs.append(FFIRandomPruner)
-                calc_kwargs.append({})
+                scorer = RandomScorer
             else:
-                # use FFI mag pruning criterion
-                calcs.append(FFIMagnitudePruner)
-                calc_kwargs.append(dict(weights=weights))
-            mask.data = HierarchicalMaskCalculator.calculate_mask(
-                sparsities, mask, calcs, calc_kwargs
+                # use magnitude pruning criterion
+                scorer = MagnitudeScorer
+            mask.data = FFIPruner(scorer=scorer).calculate_mask(
+                config["sparsity"],
+                mask,
+                values=weights,
             )
             self._assert_structure(mask, config["tensor_fqn"])
 
@@ -198,6 +207,7 @@ class SRigL(DSTMixin, BaseSparsifier):
         prune_ratio: float,
         dense_grads: torch.Tensor,
         tensor_fqn: str,
+        gamma_sal: float,
         **kwargs,
     ):
         self._logger.debug(f"Updating mask for {tensor_fqn}...")
@@ -212,7 +222,9 @@ class SRigL(DSTMixin, BaseSparsifier):
             target_sparsity = self.get_sparsity_from_prune_ratio(
                 mask, prune_ratio
             )
-            self.prune_mask(target_sparsity, mask, weights, dense_grads)
+            self.prune_mask(
+                target_sparsity, mask, weights, dense_grads, gamma_sal=gamma_sal
+            )
             self.grow_mask(sparsity, mask, original_weights, dense_grads)
             self._assert_sparsity_level(mask, sparsity)
             self._assert_structure(mask, tensor_fqn)
@@ -271,117 +283,134 @@ class SRigL(DSTMixin, BaseSparsifier):
             )
 
 
-class SRigLTwoFour(SRigL):
+class NMSRigL(SRigL):
+    # TODO: Don't inherit from SRigL
 
     def __init__(
         self,
+        scheduler: BaseScheduler,
+        distribution: BaseDistribution,
+        optimizer: torch.optim.Optimizer,
+        defaults: Optional[Dict[str, Any]] = None,
+        sparsity: float | None = None,
+        grown_weights_init: float = 0.0,
+        init_method: Optional[str] = "grad_flow",
+        random_mask_init: bool = False,
+        n: int = 2,
+        m: int = 4,
+        pad: bool = False,
+        padding_dim: int = 1,
+        permute_conv_to_nhwc: bool = False,
         *args,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(
+            scheduler,
+            distribution,
+            optimizer,
+            defaults,
+            sparsity,
+            grown_weights_init,
+            init_method,
+            random_mask_init,
+            *args,
+            **kwargs,
+        )
+        self.n = n
+        self.m = m
+        self.pad = pad
+        self.padding_dim = padding_dim
+        self.permute_conv_to_nhwc = permute_conv_to_nhwc
         if self.gamma_sal is not None:
             self._logger.warning(
                 f"Neuron ablation is not applicable for "
-                "SRigL 2:4. Gamma sal was set to "
-                f"{self.gamma_sal}"
+                "NMSRigL. Gamma sal was set to "
+                f"{self.gamma_sal}. Setting to None"
             )
-        if self.sparsity != 0.5:
-            self._logger.warning("Must set sparsity to 0.5 for 2:4")
-            self.sparsity = 0.5
-        self.grower = NMGradientGrower(
-            n=2,
-            m=4,
-            pad=False,
-            permute_conv_to_nhwc=False,  # no kernels for conv, don't waste time
+            self.gamma_sal = None
+        if self.sparsity is None:
+            self.sparsity = 1 - (self.n / self.m)
+        if self.sparsity != 1 - (self.n / self.m):
+            self._logger.warning(
+                f"Must set sparsity to None or {1-self.n/self.m} for "
+                f"{self.n}:{self.m} sparse training. Setting to "
+                f" {1-self.n/self.m}"
+            )
+            self.sparsity = 1 - (self.n / self.m)
+        if not self.permute_conv_to_nhwc:
+            self._logger.warning(
+                "permute_conv_to_nhwc is False. Typically 2:4"
+                " kernels for conv require this option set to"
+                " true."
+            )
+        self.pruner = UnstructuredPruner(scorer=MagnitudeScorer)
+        self.grower = NMGrower(
+            scorer=MagnitudeScorer,
+            n=self.n,
+            m=self.m,
+            pad=self.pad,
+            padding_dim=self.padding_dim,
+            permute_conv_to_nhwc=self.permute_conv_to_nhwc,
         )
-
-    def prune_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        weights: torch.Tensor,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            sparsity=sparsity, mask=mask, weights=weights
-        )
-        return mask
-
-    def grow_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        original_weights: torch.Tensor,
-        dense_grads: torch.Tensor,
-    ) -> torch.Tensor:
-        old_mask = mask.clone()
-        # Grow new weights
-        new_mask = self.grower.calculate_mask(
-            mask,
-            grads=dense_grads,
-        )
-        assert new_mask.data_ptr() != old_mask.data_ptr()
-        # Assign newly grown weights to self.grown_weights_init in place
-        original_weights.data = torch.where(
-            new_mask != old_mask,
-            torch.full_like(
-                original_weights, fill_value=self.grown_weights_init
-            ),
-            original_weights,
-        )
-        # Overwrite old mask
-        mask.data = new_mask.data
-        return mask
 
     def _initialize_masks(self) -> None:
         self._distribute_sparsity(self.sparsity)
         if self.random_mask_init:
-            pruner = NMRandomPruner(
-                n=2, m=4, pad=False, permute_conv_to_nhwc=False
-            )
+            scorer = RandomScorer
         else:
-            pruner = NMMagnitudePruner(
-                n=2, m=4, pad=False, permute_conv_to_nhwc=False
-            )
+            scorer = MagnitudeScorer
+        pruner = NMPruner(
+            scorer,
+            self.n,
+            self.m,
+            self.pad,
+            self.padding_dim,
+            self.permute_conv_to_nhwc,
+        )
         for config in self.groups:
             if config["sparsity"] == 0:
                 continue
             # Prune to target sparsity for this step
             weights = getattr(config["module"], config["tensor_name"])
             mask = get_mask(config["module"], config["tensor_name"])
-            mask.data = pruner.calculate_mask(mask, weights=weights)
+            mask.data = pruner.calculate_mask(
+                self.sparsity, mask, values=weights
+            )
             self._assert_structure(mask, config["tensor_fqn"])
 
     def _assert_structure(self, mask, fqn: str) -> None:
-        if mask.shape[1] % 64 != 0:
-            self._logger.warning(
-                f"Mask shape is not a multiple of 64, this weight tensor may "
-                "not work with torch semi-structured kernels!\n"
-                f"Mask shape: {mask.shape} found at {fqn}"
-            )
+        if self.n == 2 and self.m == 4:
+            if mask.shape[1] % 64 != 0:
+                self._logger.warning(
+                    f"Mask shape is not a multiple of 64, this weight tensor "
+                    "may not work with torch 2:4 semi-structured kernels!\n"
+                    f"Mask shape: {mask.shape} found at {fqn}"
+                )
         try:
-            mask_2_4 = mask.view(-1, 4)
+            mask_view = mask.view(-1, self.m)
         except RuntimeError as e:
             self._logger.error(f"fqn: {fqn:}")
             raise e
-        ones = torch.count_nonzero(mask_2_4, dim=-1)
-        if (ones != 2).all():
+        ones = torch.count_nonzero(mask_view, dim=-1)
+        if (ones != self.n).all():
             self._logger.warning(
-                f"{fqn} mask is not 2:4 pruned! Ones Tensor:\n" f"{ones}"
+                f"{fqn} mask is not {self.n}:{self.m} pruned! Ones Tensor:\n"
+                f"{ones}"
             )
-            # raise RuntimeError(
-            #     f"FFI Violation found: {ffi.unique()} ffi's in layer {fqn}"
-            # )
+            raise RuntimeError(
+                f"N:M Violation found: {ones.unique()} n's in layer {fqn}"
+            )
 
-    def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
-        # For 2:4 we should end up with precise counts
+    def _assert_sparsity_level(
+        self, mask: torch.Tensor, sparsity_level: float
+    ):  # noqa
+        # For N:M we should end up with precise counts
         n_ones = mask.count_nonzero()
         target_n_ones = int(mask.numel() * (1 - sparsity_level))
         # We ignore off-by-one errors as these will be due to floor ops
         if n_ones != target_n_ones and abs(n_ones - target_n_ones) > 1:
             # With very large mask tensors, we may have some precision errors
-            # with exact n_ones. Therefore, we simply log the warning instead of
+            # with exact n_ones. Therefore, we simply log the warning instead of # noqa
             # raising.
             # Also naturally occurs in structured pruning
             # TODO: For structured pruning we may wish to calculate
@@ -389,3 +418,9 @@ class SRigLTwoFour(SRigL):
             self._logger.warning(
                 f"n_ones actual {n_ones} != n_one target {target_n_ones}"
             )
+
+    def __str__(self) -> str:
+        s = DSTMixin.__str__(self)
+        if self.prepared_:
+            s += f"N:M: {self.n}:{self.m}\n"
+        return s
