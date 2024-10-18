@@ -1,7 +1,7 @@
 import collections
 import time
 from abc import ABC, abstractmethod
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import copy
 import logging
 import torch
@@ -33,6 +33,7 @@ class DSTMixin(ABC):
     def __init__(
         self,
         optimizer: torch.optim.Optimizer,
+        defaults: Optional[Dict[str, Any]] = None,
         random_mask_init: bool = True,
         global_pruning: bool = False,
         global_buffers_cpu_offload: bool = True,
@@ -44,6 +45,9 @@ class DSTMixin(ABC):
         Args:
             optimizer (torch.optim.Optimizer): Optimizer registered to model
                 params
+            defaults (dict, optional): default configurations will to be
+                attached to the configuration. Only the keys that don't exist in
+                the `config` passed to prepare() will be updated.
             random_mask_init (bool, optional): If True, randomly prune mask at
                 initialization. Otherwise, use pruning criteria. Defaults to
                 True.
@@ -66,7 +70,7 @@ class DSTMixin(ABC):
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
         self.prepared_ = False
-        super().__init__(*args, **kwargs)
+        super().__init__(defaults=defaults, *args, **kwargs)
 
     def prune_mask(
         self,
