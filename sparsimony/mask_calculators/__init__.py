@@ -9,10 +9,6 @@ from .scorers import (
 from .unstructured import (
     UnstructuredGrower,
     UnstructuredPruner,
-    # UnstructuredGradientGrower,
-    # UnstructuredMagnitudePruner,
-    # UnstructuredRandomGrower,
-    # UnstructuredRandomPruner,
 )
 
 from .neuron import (
@@ -21,14 +17,6 @@ from .neuron import (
     NeuronSRigLPruner,
 )
 from .fine_grained import (
-    # FFIGradientGrower,
-    # FFIMagnitudePruner,
-    # FFIRandomGrower,
-    # FFIRandomPruner,
-    # NMGradientGrower,
-    # NMMagnitudePruner,
-    # NMRandomGrower,
-    # NMRandomPruner,
     NMGrower,
     NMPruner,
     FFIGrower,

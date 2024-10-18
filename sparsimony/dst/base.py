@@ -11,6 +11,7 @@ import torch.distributed as dist
 from torch.ao.pruning.sparsifier.utils import get_arg_info_from_tensor_fqn
 
 from sparsimony.utils import (
+    cast_mask,
     get_mask,
     get_original_tensor,
     get_parametrization,
@@ -34,7 +35,7 @@ class DSTMixin(ABC):
         self,
         optimizer: torch.optim.Optimizer,
         defaults: Optional[Dict[str, Any]] = None,
-        random_mask_init: bool = True,
+        random_mask_init: bool = False,
         global_pruning: bool = False,
         global_buffers_cpu_offload: bool = True,
         *args,
@@ -199,6 +200,7 @@ class DSTMixin(ABC):
         self._logger.debug("Preparing masks...")
         super().prepare(model, sparse_config)
         self._initialize_masks()
+        _ = self._cast_masks(dtype=self._MASK_DTYPE)
         self._broadcast_masks()
         self.adjust_init_for_sparsity()
         self.zero_inactive_param_momentum_buffers()
@@ -377,14 +379,14 @@ class DSTMixin(ABC):
         if self.random_mask_init:
             pruner = UnstructuredPruner(scorer=RandomScorer)
             global_data_helper.masks.data = pruner.calculate_mask(
-                self.sparsity, global_data_helper.masks
+                self.sparsity, values=global_data_helper.masks
             )
         else:
             # use pruning criterion
             self.prune_mask(
                 self.sparsity,
                 global_data_helper.masks,
-                global_data_helper.sparse_weights,
+                values=global_data_helper.sparse_weights,
             )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()
@@ -401,6 +403,11 @@ class DSTMixin(ABC):
             ).count_nonzero()
             total_neurons += mask_flat.shape[0]
         return active_neurons / total_neurons
+
+    def _cast_masks(self, dtype: torch.dtype) -> torch.dtype:
+        for config in self.groups:
+            original_dtype = cast_mask(dtype=dtype, **config)
+        return original_dtype
 
 
 class GlobalPruningDataHelper:

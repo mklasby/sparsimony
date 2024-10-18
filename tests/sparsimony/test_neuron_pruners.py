@@ -2,8 +2,9 @@ import pytest
 import torch
 import math
 
-from sparsimony.mask_calculators.neuron import (
-    NeuronRandomPruner,
+from sparsimony.mask_calculators import (
+    NeuronPruner,
+    RandomScorer,
 )
 from sparsimony.dst.base import DSTMixin
 
@@ -50,8 +51,8 @@ def mask(request):
 
 @pytest.fixture(
     scope="function",
-    params=[0.0, 0.2, 0.5, 0.9, 0.99],
-    ids=[f" prune_ratio:{p*100}%" for p in [0.0, 0.2, 0.5, 0.9, 0.99]],
+    params=[0.0, 0.2, 0.5, 0.875, 0.99],
+    ids=[f" prune_ratio:{p*100}%" for p in [0.0, 0.2, 0.5, 0.875, 0.99]],
 )
 def prune_ratio(request):
     return request.param
@@ -64,8 +65,9 @@ def weights(mask):
 
 def test_neuron_random(mask, prune_ratio):
     # Call the method to be tested
+    pruner = NeuronPruner(RandomScorer)
     sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
-    pruned_mask = NeuronRandomPruner.calculate_mask(sparsity, mask)
+    pruned_mask = pruner.calculate_mask(sparsity, mask, values=mask)
 
     # Assertions
     assert pruned_mask.shape == mask.shape
@@ -81,3 +83,6 @@ def test_neuron_random(mask, prune_ratio):
     ).sum() == nnz_tiles
     max_n_ones = math.ceil(mask.numel() * (1 - sparsity))
     assert expected_nonzero <= max_n_ones
+
+
+# TODO: let's add some other scorer tests here

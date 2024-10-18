@@ -23,6 +23,19 @@ def get_mask(
     return get_parametrization(module, tensor_name, param_idx).mask
 
 
+def cast_mask(
+    dtype: torch.dtype,
+    module: nn.Module,
+    tensor_name: str = "weight",
+    param_idx: int = 0,
+    **kwargs,
+) -> torch.dtype:
+    parametrization = get_parametrization(module, tensor_name, param_idx)
+    original_dtype = parametrization.mask.dtype
+    parametrization.mask = parametrization.mask.to(dtype=dtype)
+    return original_dtype
+
+
 def get_n_ones(sparsity: float, mask: torch.Tensor) -> int:
     return math.floor((1 - sparsity) * mask.numel())
 

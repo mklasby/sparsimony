@@ -189,6 +189,7 @@ class StructuredPruner(BasePruner):
                 f"n_tiles_to_drop == 0 ({n_tiles_to_drop}), continuing..."
             )
             return False
+        return True
 
     def _calculate_mask(
         self,

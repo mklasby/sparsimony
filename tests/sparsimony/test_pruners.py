@@ -2,9 +2,10 @@ import pytest
 import torch
 import math
 
-from sparsimony.mask_calculators.unstructured import (
-    UnstructuredRandomPruner,
-    UnstructuredMagnitudePruner,
+from sparsimony.mask_calculators import (
+    UnstructuredPruner,
+    RandomScorer,
+    MagnitudeScorer,
 )
 from sparsimony.dst.base import DSTMixin
 
@@ -63,8 +64,9 @@ def weights(mask):
 
 def test_unstructured_random_pruner(mask, prune_ratio):
     # Call the method to be tested
+    pruner = UnstructuredPruner(RandomScorer)
     sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
-    pruned_mask = UnstructuredRandomPruner.calculate_mask(sparsity, mask)
+    pruned_mask = pruner.calculate_mask(sparsity, mask, values=mask)
 
     # Assertions
     assert pruned_mask.shape == mask.shape
@@ -77,11 +79,12 @@ def test_unstructured_random_pruner(mask, prune_ratio):
 
 def test_unstructured_pruners(mask, prune_ratio, weights):
     # Seed weights with known values
+    pruner = UnstructuredPruner(MagnitudeScorer)
     weights = torch.where(
         mask == 1, torch.full_like(weights, 100), torch.zeros_like(weights)
     )
     sparsity = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
-    n_drop = UnstructuredMagnitudePruner.calculate_n_drop(mask, sparsity)
+    n_drop = pruner.calculate_n_drop(mask, sparsity)
     _, idx = torch.topk(weights.view(-1), k=n_drop, largest=True)
     weights = torch.scatter(
         weights.view(-1),
@@ -90,9 +93,7 @@ def test_unstructured_pruners(mask, prune_ratio, weights):
         src=torch.full_like(weights.view(-1), 1),
     ).reshape(weights.shape)
     # Call the method to be tested
-    pruned_mask = UnstructuredMagnitudePruner.calculate_mask(
-        sparsity, mask, weights=weights
-    )
+    pruned_mask = pruner.calculate_mask(sparsity, mask, values=weights)
 
     # Assertions
     assert pruned_mask.shape == mask.shape
