@@ -1,24 +1,26 @@
-from .unstructured import (
-    UnstructuredGradientGrower,
-    UnstructuredMagnitudePruner,
-    UnstructuredRandomGrower,
-    UnstructuredRandomPruner,
+from .scorers import (
+    RandomScorer,
+    MagnitudeScorer,
+    SequentialScorer,
+    TopKElementScorer,
+    NMStructureScorer,
+    AblatedTileScorer,
 )
+from .unstructured import (
+    UnstructuredGrower,
+    UnstructuredPruner,
+)
+
 from .neuron import (
-    NeuronGradientGrower,
-    NeuronMagnitudePruner,
-    NeuronRandomGrower,
-    NeuronRandomPruner,
+    NeuronGrower,
+    NeuronPruner,
     NeuronSRigLPruner,
 )
 from .fine_grained import (
-    FFIGradientGrower,
-    FFIMagnitudePruner,
-    FFIRandomGrower,
-    FFIRandomPruner,
-    NMGradientGrower,
-    NMMagnitudePruner,
-    NMRandomGrower,
-    NMRandomPruner,
+    NMGrower,
+    NMPruner,
+    FFIGrower,
+    FFIPruner,
 )
-from .base import HierarchicalMaskCalculator
+
+from .hierarchical import HierarchicalMaskCalculator

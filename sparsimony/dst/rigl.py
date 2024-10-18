@@ -10,9 +10,10 @@ from sparsimony.parametrization.fake_sparsity import FakeSparsityDenseGradBuffer
 from sparsimony.utils import get_mask, get_parametrization
 from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
 from sparsimony.mask_calculators import (
-    UnstructuredMagnitudePruner,
-    UnstructuredGradientGrower,
-    UnstructuredRandomPruner,
+    UnstructuredPruner,
+    UnstructuredGrower,
+    MagnitudeScorer,
+    RandomScorer,
 )
 
 
@@ -40,43 +41,8 @@ class RigL(DSTMixin, BaseSparsifier):
         super().__init__(
             optimizer=optimizer, defaults=defaults, *args, **kwargs
         )
-
-    def prune_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        weights: torch.Tensor,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        mask.data = UnstructuredMagnitudePruner.calculate_mask(
-            sparsity, mask, weights=weights
-        )
-        return mask
-
-    def grow_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        original_weights: torch.Tensor,
-        dense_grads: torch.Tensor,
-    ) -> torch.Tensor:
-        # Grow new weights
-        old_mask = torch.clone(mask)
-        new_mask = UnstructuredGradientGrower.calculate_mask(
-            sparsity, mask, grads=dense_grads
-        )
-        # Assign newly grown weights to self.grown_weights_init in place
-        original_weights.data = torch.where(
-            new_mask != old_mask,
-            torch.full_like(
-                original_weights, fill_value=self.grown_weights_init
-            ),
-            original_weights,
-        )
-        # Overwrite old mask
-        mask.data = new_mask.data
-        return mask
+        self.pruner = UnstructuredPruner(scorer=MagnitudeScorer)
+        self.grower = UnstructuredGrower(scorer=MagnitudeScorer)
 
     def _step(self) -> bool:
         _topo_updated = False
@@ -125,13 +91,16 @@ class RigL(DSTMixin, BaseSparsifier):
             mask = get_mask(config["module"], config["tensor_name"])
             if self.random_mask_init:
                 # Randomly prune for step 1
-                mask.data = UnstructuredRandomPruner.calculate_mask(
-                    config["sparsity"], mask
+                pruner = UnstructuredPruner(scorer=RandomScorer)
+                mask.data = pruner.calculate_mask(
+                    config["sparsity"], values=mask
                 )
             else:
                 # use pruning criterion
                 weights = getattr(config["module"], config["tensor_name"])
-                mask.data = self.prune_mask(config["sparsity"], mask, weights)
+                mask.data = self.prune_mask(
+                    config["sparsity"], mask, values=weights
+                )
 
     def update_mask(
         self,
@@ -153,8 +122,8 @@ class RigL(DSTMixin, BaseSparsifier):
             target_sparsity = self.get_sparsity_from_prune_ratio(
                 mask, prune_ratio
             )
-            self.prune_mask(target_sparsity, mask, weights)
-            self.grow_mask(sparsity, mask, original_weights, dense_grads)
+            self.prune_mask(target_sparsity, mask, values=weights)
+            self.grow_mask(sparsity, mask, original_weights, values=dense_grads)
             self._assert_sparsity_level(mask, sparsity)
 
     def _global_step(self, prune_ratio: float) -> None:
@@ -176,13 +145,13 @@ class RigL(DSTMixin, BaseSparsifier):
         self.prune_mask(
             target_sparsity,
             global_data_helper.masks,
-            global_data_helper.sparse_weights,
+            values=global_data_helper.sparse_weights,
         )
         self.grow_mask(
             self.sparsity,
             global_data_helper.masks,
             global_data_helper.original_weights,
-            dense_grads,
+            values=dense_grads,
         )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()

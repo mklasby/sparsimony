@@ -1,4 +1,3 @@
-import math
 from typing import Optional, Dict, Any
 import torch
 import torch.nn as nn
@@ -7,8 +6,13 @@ from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.utils import get_mask, get_original_tensor
-from sparsimony.dst.base import DSTMixin
-from sparsimony.mask_calculators import NMMagnitudePruner, NMRandomGrower
+from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
+from sparsimony.mask_calculators import (
+    NMPruner,
+    NMGrower,
+    MagnitudeScorer,
+    RandomScorer,
+)
 
 
 class SSET(DSTMixin, BaseSparsifier):
@@ -18,83 +22,70 @@ class SSET(DSTMixin, BaseSparsifier):
         scheduler: BaseScheduler,
         distribution: BaseDistribution,
         optimizer: torch.optim.Optimizer,
-        m: int = 4,
-        padding_dim: int = 2,
         defaults: Optional[Dict[str, Any]] = None,
         sparsity: float = 0.5,
         grown_weights_init: float = 0.0,
         init_method: Optional[str] = "grad_flow",
+        n: int = 2,
+        m: int = 4,
+        pad: bool = False,
+        padding_dim: int = 1,
+        permute_conv_to_nhwc: bool = False,
         *args,
         **kwargs,
     ):
-        self.scheduler = scheduler
-        self.distribution = distribution
-        self.sparsity = sparsity
+        super().__init__(
+            scheduler,
+            distribution,
+            optimizer,
+            defaults,
+            sparsity,
+            grown_weights_init,
+            init_method,
+            *args,
+            **kwargs,
+        )
         self.grown_weights_init = grown_weights_init
         self.init_method = init_method
+        self.n = n
         self.m = m
+        self.pad = pad
         self.padding_dim = padding_dim
+        self.permute_conv_to_nhwc = permute_conv_to_nhwc
         if defaults is None:
             defaults = dict()
+        if self.sparsity is None:
+            self.sparsity = 1 - (self.n / self.m)
+        if self.sparsity != 1 - (self.n / self.m):
+            self._logger.warning(
+                f"Must set sparsity to None or {1-self.n/self.m} for "
+                f"{self.n}:{self.m} sparse training. Setting to "
+                f" {1-self.n/self.m}"
+            )
+            self.sparsity = 1 - (self.n / self.m)
+        if not self.permute_conv_to_nhwc:
+            self._logger.warning(
+                "permute_conv_to_nhwc is False. Typically 2:4"
+                " kernels for conv require this option set to"
+                " true."
+            )
         super().__init__(optimizer=optimizer, defaults=defaults)
-
-    def prune_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        weights: torch.Tensor,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        # always prune at least one el
-        n = max(math.floor((1 - sparsity) * self.m), 1)
-        pad = True
-        if len(mask.shape) == 4:
-            pad = False
-        pruner = NMMagnitudePruner(
-            n,
-            self.m,
-            pad=pad,
+        self.pruner = NMPruner(
+            scorer=MagnitudeScorer,
+            n=self.n,
+            m=self.m,
+            pad=self.pad,
             padding_dim=self.padding_dim,
-            permute_conv_to_nhwc=True,
+            permute_conv_to_nhwc=self.permute_conv_to_nhwc,
         )
-        pruner_kwargs = dict(mask=mask, weights=weights)
-        mask.data = pruner.calculate_mask(**pruner_kwargs)
-        return mask
-
-    def grow_mask(
-        self,
-        sparsity: float,
-        mask: torch.Tensor,
-        original_weights: torch.Tensor,
-    ):
-        n = max(math.floor((1 - sparsity) * self.m), 1)
-        pad = True
-        if len(mask.shape) == 4:  # Don't pad convs
-            pad = False
-        grower = NMRandomGrower(
-            n,
-            self.m,
-            pad=pad,
+        self.grower = NMGrower(
+            scorer=RandomScorer,
+            n=self.n,
+            m=self.m,
+            pad=self.pad,
             padding_dim=self.padding_dim,
-            permute_conv_to_nhwc=True,
+            permute_conv_to_nhwc=self.permute_conv_to_nhwc,
         )
-        old_mask = mask.clone()
-        # Grow new weights
-        new_mask = grower.calculate_mask(
-            sparsity,
-            mask,
-        )
-        # Assign newly grown weights to self.grown_weights_init
-        torch.where(
-            new_mask != old_mask,
-            torch.full_like(
-                original_weights, fill_value=self.grown_weights_init
-            ),
-            original_weights,
-        )
-        # Overwrite old mask
-        mask.data = new_mask.data
 
     def _step(self) -> bool:
         _topo_updated = False
@@ -136,3 +127,23 @@ class SSET(DSTMixin, BaseSparsifier):
             mask = get_mask(config["module"], config["tensor_name"])
             weights = getattr(config["module"], config["tensor_name"])
             self.prune_mask(config["sparsity"], mask, weights)
+
+    def _global_step(self, prune_ratio: float) -> None:
+        global_data_helper = GlobalPruningDataHelper(
+            self.groups, self.global_buffers_cpu_offload
+        )
+        target_sparsity = self.get_sparsity_from_prune_ratio(
+            global_data_helper.masks, prune_ratio
+        )
+        self.prune_mask(
+            target_sparsity,
+            global_data_helper.masks,
+            values=global_data_helper.sparse_weights,
+        )
+        self.grow_mask(
+            self.sparsity,
+            global_data_helper.masks,
+            global_data_helper.original_weights,
+        )
+        self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
+        global_data_helper.reshape_and_assign_masks()
