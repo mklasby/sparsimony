@@ -92,11 +92,15 @@ class RigL(DSTMixin, BaseSparsifier):
             if self.random_mask_init:
                 # Randomly prune for step 1
                 pruner = UnstructuredPruner(scorer=RandomScorer)
-                mask.data = pruner.calculate_mask(config["sparsity"], mask)
+                mask.data = pruner.calculate_mask(
+                    config["sparsity"], values=mask
+                )
             else:
                 # use pruning criterion
                 weights = getattr(config["module"], config["tensor_name"])
-                mask.data = self.prune_mask(config["sparsity"], mask, weights)
+                mask.data = self.prune_mask(
+                    config["sparsity"], mask, values=weights
+                )
 
     def update_mask(
         self,

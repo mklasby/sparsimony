@@ -126,7 +126,10 @@ class RandomScorer(ABCScorer):
 
     @classmethod
     def score(cls, values: torch.Tensor, *args, **kwargs):
-        return torch.abs(torch.rand_like(values)) + ScoreOverrides.EPS
+        return (
+            torch.abs(torch.rand_like(values, dtype=torch.float))
+            + ScoreOverrides.EPS
+        )
 
 
 class AblatedTileScorer(ABCScorer):
