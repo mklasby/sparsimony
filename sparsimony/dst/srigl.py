@@ -3,14 +3,13 @@ from math import prod
 
 import torch
 import torch.nn as nn
-import torch.distributed as dist
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsityDenseGradBuffer
 from sparsimony.utils import get_mask, get_n_ones, get_parametrization
-from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
+from sparsimony.dst.base import DSTMixin
 from sparsimony.mask_calculators import (
     UnstructuredPruner,
     FFIPruner,
@@ -284,34 +283,9 @@ class SRigL(DSTMixin, BaseSparsifier):
             )
 
     def _global_step(self, prune_ratio: float) -> None:
-        global_data_helper = GlobalPruningDataHelper(
-            self.groups, self.global_buffers_cpu_offload
+        raise NotImplementedError(
+            "Global pruning not applicable for SRigL/NMSRigL"
         )
-        dense_grads = []
-        for config in self.groups:
-            these_grads = self._get_dense_grads(**config)
-            if dist.is_initialized():
-                dist.all_reduce(these_grads, dist.ReduceOp.AVG, async_op=False)
-            dense_grads.append(these_grads.flatten())
-        dense_grads = torch.concat(dense_grads)
-        if self.global_buffers_cpu_offload:
-            dense_grads = dense_grads.to("cpu")
-        target_sparsity = self.get_sparsity_from_prune_ratio(
-            global_data_helper.masks, prune_ratio
-        )
-        self.prune_mask(
-            target_sparsity,
-            global_data_helper.masks,
-            values=global_data_helper.sparse_weights,
-        )
-        self.grow_mask(
-            self.sparsity,
-            global_data_helper.masks,
-            global_data_helper.original_weights,
-            values=dense_grads,
-        )
-        self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
-        global_data_helper.reshape_and_assign_masks()
 
 
 class NMSRigL(SRigL):

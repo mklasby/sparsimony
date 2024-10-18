@@ -1,4 +1,4 @@
-from typing import Optional, List  # noqa
+from typing import Optional, List
 import torch
 
 from sparsimony.distributions.base import (
@@ -8,15 +8,15 @@ from sparsimony.distributions.base import (
 )
 from sparsimony.schedulers.base import (
     AcceleratedCubicScheduler,
+    BaseScheduler,
     ConstantScheduler,
     CosineDecayScheduler,
 )
 from sparsimony.dst.rigl import RigL
-from sparsimony.dst.srigl import SRigL, NMSRigL  # noqa
+from sparsimony.dst.srigl import SRigL, NMSRigL
 from sparsimony.dst.set import SET
 from sparsimony.dst.gmp import GMP
-
-# from sparsimony.dst.static import StaticMagnitudeSparsifier
+from sparsimony.dst.static import StaticMagnitudeSparsifier
 
 
 def rigl(
@@ -25,6 +25,7 @@ def rigl(
     t_end: int,
     delta_t: int = 100,
     pruning_ratio: float = 0.3,
+    global_pruning: bool = False,
 ) -> RigL:
     """Return RigL sparsifier.
 
@@ -51,6 +52,7 @@ def rigl(
         distribution=ERKDistribution(),
         optimizer=optimizer,
         sparsity=sparsity,
+        global_pruning=global_pruning,
     )
 
 
@@ -60,6 +62,7 @@ def set(
     t_end: int,
     delta_t: int = 390,
     pruning_ratio: float = 0.3,
+    global_pruning: bool = False,
 ) -> SET:
     """Return SET sparsifier.
 
@@ -86,6 +89,7 @@ def set(
         distribution=UniformDistribution(),
         optimizer=optimizer,
         sparsity=sparsity,
+        global_pruning=global_pruning,
     )
 
 
@@ -98,6 +102,7 @@ def gmp(
     initial_sparsity: float = 0.0,
     accelerated_sparsity: float = 0.7,
     final_sparsity: float = 0.9,
+    global_pruning: bool = False,
 ):
     """GMP* implementation by Kurtic et al.
     https://proceedings.mlr.press/v234/kurtic24a.html
@@ -132,72 +137,160 @@ def gmp(
         ),
         distribution=distribution,
         optimizer=optimizer,
+        global_pruning=global_pruning,
     )
 
 
-# def static(
-#     optimizer: torch.optim.Optimizer,
-#     sparsity: float,
-# ) -> StaticMagnitudeSparsifier:
-#     """Return StaticMagnitude sparsifier.
+def static(
+    optimizer: torch.optim.Optimizer,
+    sparsity: float,
+    global_pruning: bool = False,
+) -> StaticMagnitudeSparsifier:
+    """Return StaticMagnitude sparsifier.
 
-#     Args:
-#         optimizer (torch.optim.Optimizer): Previously initialized optimizer for
-#             training. Used to override the dense gradient buffers for
-#             sparse weights.
-#         sparsity (float): Sparsity level to prune network to.
+    Args:
+        optimizer (torch.optim.Optimizer): Previously initialized optimizer for
+            training. Used to override the dense gradient buffers for
+            sparse weights.
+        sparsity (float): Sparsity level to prune network to.
 
-#     Returns:
-#         StaticMagnitudeSparsifier: Initialized StaticMagnitude sparsifier.
-#     """
-#     return StaticMagnitudeSparsifier(
-#         optimizer=optimizer,
-#         distribution=UniformDistribution(),
-#         sparsity=sparsity,
-#     )
+    Returns:
+        StaticMagnitudeSparsifier: Initialized StaticMagnitude sparsifier.
+    """
+    return StaticMagnitudeSparsifier(
+        optimizer=optimizer,
+        distribution=UniformDistribution(),
+        sparsity=sparsity,
+        global_pruning=global_pruning,
+    )
 
 
-# def nm_srigl(
-#     optimizer: torch.optim.Optimizer,
-#     t_end: int,
-#     delta_t: int = 100,
-#     pruning_ratio: float = 0.3,
-#     random_mask_init: bool = False,
-#     excluded_types: str | None | List[str] = "Conv2d",
-#     excluded_mod_name_regexs: str | None | List[str] = "classifier",
-# ) -> RigL:
-#     """Return NMSRigL sparsifier.
+def nm_srigl(
+    optimizer: torch.optim.Optimizer,
+    t_end: int,
+    n: int = 2,
+    m: int = 4,
+    sparsity: None | float = 0.5,
+    delta_t: int = 100,
+    pruning_ratio: float = 0.3,
+    random_mask_init: bool = False,
+    excluded_types: str | None | List[str] = "Conv2d",
+    excluded_mod_name_regexs: str | None | List[str] = "classifier",
+    global_pruning: bool = False,
+) -> RigL:
+    """Return NMSRigL sparsifier.
 
-#     Args:
-#         optimizer (torch.optim.Optimizer): Previously initialized optimizer for
-#             training. Used to override the dense gradient buffers for
-#             sparse weights.
-#         sparsity (float): Sparsity level to prune network to.
-#         t_end (int): Step to freeze the sparse topology. Typically 75% of total
-#             training optimizer steps.
-#         delta_t (int, optional): Steps between topology update. Defaults to 100.
-#         pruning_ratio (float, optional): Fraction of nnz elements to prune each
-#             iteration. Defaults to 0.3.
-#         excluded_types Optional[Union[str, List[str]]]: String component of
-#             types to exclude. Defaults to Conv2d.
-#         excluded_mod_name_regex Optional[Union[str, List[str]]]: FQN module
-#             names to exclude.
-#         random_mask_init (bool, optional): If False, use magnitude pruning to
-#             initialize the mask. If True mask is randomly pruned. Defaults to
-#             False.
+    Args:
+        optimizer (torch.optim.Optimizer): Previously initialized optimizer for
+            training. Used to override the dense gradient buffers for
+            sparse weights.
+        sparsity (float): Sparsity level to prune network to.
+        t_end (int): Step to freeze the sparse topology. Typically 75% of total
+            training optimizer steps.
+        delta_t (int, optional): Steps between topology update. Defaults to 100.
+        pruning_ratio (float, optional): Fraction of nnz elements to prune each
+            iteration. Defaults to 0.3.
+        excluded_types Optional[Union[str, List[str]]]: String component of
+            types to exclude. Defaults to Conv2d.
+        excluded_mod_name_regex Optional[Union[str, List[str]]]: FQN module
+            names to exclude.
+        random_mask_init (bool, optional): If False, use magnitude pruning to
+            initialize the mask. If True mask is randomly pruned. Defaults to
+            False.
 
-#     Returns:
-#         RigL: Initialized rigl sparsifier.
-#     """
-#     return NMSRigL(
-#         scheduler=CosineDecayScheduler(
-#             quantity=pruning_ratio,
-#             t_end=t_end,
-#             delta_t=delta_t,
-#         ),
-#         distribution=UniformDistribution(
-#             excluded_types=excluded_types,
-#             excluded_mod_name_regexs=excluded_mod_name_regexs,
-#         ),
-#         optimizer=optimizer,
-#     )
+    Returns:
+        RigL: Initialized rigl sparsifier.
+    """
+    return NMSRigL(
+        scheduler=CosineDecayScheduler(
+            quantity=pruning_ratio,
+            t_end=t_end,
+            delta_t=delta_t,
+        ),
+        distribution=UniformDistribution(
+            excluded_types=excluded_types,
+            excluded_mod_name_regexs=excluded_mod_name_regexs,
+        ),
+        optimizer=optimizer,
+        random_mask_init=random_mask_init,
+        global_pruning=global_pruning,
+        n=n,
+        m=m,
+        sparsity=sparsity,
+    )
+
+
+def srigl(
+    optimizer: torch.optim.Optimizer,
+    sparsity: float,
+    gamma_sal: None | float = 0.3,
+    no_ablation_last_layer: bool = True,
+    t_end: int | None = None,
+    delta_t: int = 100,
+    pruning_ratio: float = 0.3,
+    scheduler: None | BaseScheduler = None,
+    distribution: None | BaseDistribution = None,
+    grown_weights_init: float = 0.0,
+    init_method: Optional[str] = "grad_flow",
+    random_mask_init: bool = False,
+) -> SRigL:
+    """Return SRigL sparsifier.
+
+    Args:
+        optimizer (torch.optim.Optimizer): Previously initialized optimizer for
+            training. Used to override the dense gradient buffers for
+            sparse weights.
+        sparsity (float): Sparsity level to prune network to.
+        gamma_sal (None | float, optional): Hyperparameter that controls
+            dynamic neuron ablation. Defaults to 0.3. See paper for more info.
+        no_ablation_last_layer (bool, optional): If True, do not ablate neurons
+            last layer. This should only set to False in special circumstances.
+            Defaults to True.
+        t_end (int | None, optional):  Step to freeze the sparse topology.
+            Typically 75% of total training optimizer steps. If None, must pass
+            an initialized scheduler. Defaults to None.
+        delta_t (int, optional): Steps between topology update. Defaults to 100
+        pruning_ratio (float, optional):  Fraction of non-zero elements to prune
+            each iteration. Defaults to 0.3.
+        scheduler (None | BaseScheduler, optional): Scheduler to use to control
+            mask updates. If None, use CosineDecayScheduler. Defaults to None.
+        distribution (None | BaseDistribution, optional): Distribution to define
+            layer-wise sparsity distribution. If None, ERKDistribution is used.
+            Defaults to None.
+        grown_weights_init (float, optional): Value to initialize newly grown
+            weights to. Defaults to 0.0.
+        init_method (Optional[str], optional): Optional reinitialization of
+            weights after initializing masks. If None, default torch
+            initialization is used. Defaults to "grad_flow".
+        random_mask_init (bool, optional): If True, randomly initialize mask
+            instead of magnitude pruning. Defaults to False.
+
+    Raises:
+        ValueError: If both t_end and scheduler are None.
+
+    Returns:
+        SRigL: Initialized SRigL sparsifier.
+    """
+    if t_end is None and scheduler is None:
+        raise ValueError("Must pass t_end or an initialized scheduler")
+    if scheduler is None:
+        scheduler = (
+            CosineDecayScheduler(
+                quantity=pruning_ratio,
+                t_end=t_end,
+                delta_t=delta_t,
+            ),
+        )
+    if distribution is None:
+        distribution = ERKDistribution()
+    return SRigL(
+        scheduler,
+        distribution,
+        optimizer,
+        sparsity=sparsity,
+        grown_weights_init=grown_weights_init,
+        init_method=init_method,
+        random_mask_init=random_mask_init,
+        gamma_sal=gamma_sal,
+        no_ablation_last_layer=no_ablation_last_layer,
+    )
