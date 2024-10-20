@@ -283,34 +283,34 @@ class InvalidSparseDistribution(Exception):
     pass
 
 
-class UniformNMDistribution(UniformDistribution):
-    def __init__(
-        self,
-        skip_first_layer: bool = False,
-        skip_last_layer: bool = False,
-        excluded_types: Optional[List[type]] = None,
-        excluded_mod_name_regexs: Optional[List[type]] = None,
-    ):
-        super().__init__(
-            skip_first_layer,
-            skip_last_layer,
-            excluded_types,
-            excluded_mod_name_regexs,
-            excluded_modules_in_param_count=False,
-        )
+# class UniformNMDistribution(UniformDistribution):
+#     def __init__(
+#         self,
+#         skip_first_layer: bool = False,
+#         skip_last_layer: bool = False,
+#         excluded_types: Optional[List[type]] = None,
+#         excluded_mod_name_regexs: Optional[List[type]] = None,
+#     ):
+#         super().__init__(
+#             skip_first_layer,
+#             skip_last_layer,
+#             excluded_types,
+#             excluded_mod_name_regexs,
+#             excluded_modules_in_param_count=False,
+#         )
 
-    def _should_exclude(
-        self,
-        mod: nn.Module,
-        name: str,
-        layer_id: int,
-        group_len: int,
-        tensor_name: str,
-    ) -> bool:
-        t = getattr(mod, tensor_name)
-        if len(t.shape) == 4:  # conv
-            if t.shape[1] % 4 != 0:
-                return True
-        return super()._should_exclude(
-            mod, name, layer_id, group_len, tensor_name
-        )
+#     def _should_exclude(
+#         self,
+#         mod: nn.Module,
+#         name: str,
+#         layer_id: int,
+#         group_len: int,
+#         tensor_name: str,
+#     ) -> bool:
+#         t = getattr(mod, tensor_name)
+#         if len(t.shape) == 4:  # conv
+#             if t.shape[1] % 4 != 0:
+#                 return True
+#         return super()._should_exclude(
+#             mod, name, layer_id, group_len, tensor_name
+#         )
