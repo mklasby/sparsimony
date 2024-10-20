@@ -9,9 +9,6 @@ from sparsimony.utils import calculate_per_tile_n_ones, view_tensors_as  # noqa
 from .scorers import ABCScorer
 
 
-# TODO: Score override as float so we can "patch" scores with overrides.
-
-
 class ABCMaskCalculator(ABC):
 
     # def __init__(self, scorer: ABCScorer, tensor_shape: tuple):

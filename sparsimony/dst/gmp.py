@@ -3,13 +3,18 @@ from typing import Optional, Dict, Any
 import torch
 import torch.nn as nn
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
+from torch.optim.optimizer import Optimizer as Optimizer
 
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.parametrization.fake_sparsity import FakeSparsity
 from sparsimony.utils import get_mask
 from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
-from sparsimony.mask_calculators import UnstructuredPruner, MagnitudeScorer
+from sparsimony.mask_calculators import (
+    UnstructuredPruner,
+    MagnitudeScorer,
+    NMStructureScorer,
+)
 
 
 class GMP(DSTMixin, BaseSparsifier):
@@ -102,3 +107,100 @@ class GMP(DSTMixin, BaseSparsifier):
         )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()
+
+
+class SGMP(GMP):
+    def __init__(
+        self,
+        scheduler: BaseScheduler,
+        distribution: BaseDistribution,
+        optimizer: Optimizer,
+        defaults: Dict[str, Any] | None = None,
+        n: int = 2,
+        m: int = 4,
+        pad: bool = False,
+        padding_dim: int = 1,
+        permute_conv_to_nhwc: bool = False,
+        *args,
+        **kwargs,
+    ):
+        self.n = n
+        self.m = m
+        self.pad = pad
+        self.padding_dim = padding_dim
+        self.permute_conv_to_nhwc = permute_conv_to_nhwc
+        super().__init__(
+            scheduler, distribution, optimizer, defaults, *args, **kwargs
+        )
+        if self.global_pruning:
+            raise ValueError("Cannot use global pruning with SGMP")
+        if self.scheduler.final_sparsity > 1 - (self.n / self.m):
+            raise ValueError(
+                f"Final sparsity of {self.scheduler.final_sparsity} > "
+                f"{self.n}/{self.m}. Check scheduler sparsities!"
+            )
+        if not self.permute_conv_to_nhwc:
+            self._logger.warning(
+                "permute_conv_to_nhwc is False. Typically 2:4"
+                " kernels for conv require this option set to"
+                " true."
+            )
+        self.pruner = UnstructuredPruner(MagnitudeScorer)
+
+    def prune_mask(
+        self,
+        sparsity: float,
+        mask: torch.Tensor,
+        values: torch.Tensor,
+        *args,
+        **kwargs,
+    ) -> torch.Tensor:
+        score_override = NMStructureScorer.score(
+            MagnitudeScorer,
+            mask,
+            n=self.n,
+            m=self.m,
+            score_override=None,
+            values=values.view(-1, 1),
+        )
+        return self.pruner.calculate_mask(
+            sparsity, mask, score_override=score_override, values=values
+        )
+
+    def _assert_structure(self, mask, fqn: str) -> None:
+        if self.n == 2 and self.m == 4:
+            if mask.shape[1] % 64 != 0:
+                self._logger.warning(
+                    f"Mask shape is not a multiple of 64, this weight tensor "
+                    "may not work with torch 2:4 semi-structured kernels!\n"
+                    f"Mask shape: {mask.shape} found at {fqn}"
+                )
+        try:
+            mask_view = mask.view(-1, self.m)
+        except RuntimeError as e:
+            self._logger.error(f"fqn: {fqn}")
+            raise e
+        ones = torch.count_nonzero(mask_view, dim=-1)
+        if (ones < self.n).any():
+            self._logger.warning(
+                f"{fqn} mask has tiles with < {self.n} elements in tile! "
+                f"Ones Tensor:\n {ones}"
+            )
+
+    def __str__(self):
+        s = super().__str__()
+        if self.prepared_:
+            completed_tiles = []
+            total_tiles = []
+            for config in self.groups:
+                mask = get_mask(**config)
+                mask_view = mask.view(-1, self.m)
+                completed_tiles.append(
+                    (mask_view.sum(dim=-1) == self.n).sum().item()
+                )
+                total_tiles.append(mask_view.shape[0])
+            completed_tile_strs = []
+            for complete, total in list(zip(completed_tiles, total_tiles)):
+                completed_tile_strs.append(f"{complete}/{total}")
+            s += f"Pruned Tiles: {completed_tile_strs}"
+        return s
