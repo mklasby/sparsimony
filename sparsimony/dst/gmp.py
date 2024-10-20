@@ -134,7 +134,7 @@ class SGMP(GMP):
         )
         if self.global_pruning:
             raise ValueError("Cannot use global pruning with SGMP")
-        if self.scheduler.final_sparsity > 1 - (self.n / self.m):
+        if self.scheduler.final_sparsity != 1 - (self.n / self.m):
             raise ValueError(
                 f"Final sparsity of {self.scheduler.final_sparsity} > "
                 f"{self.n}/{self.m}. Check scheduler sparsities!"
