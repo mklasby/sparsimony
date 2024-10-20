@@ -339,6 +339,7 @@ class DSTMixin(ABC):
             f"{self.__class__.__name__}\n"
             f"Scheduler: {self.scheduler.__class__.__name__}\n"
             f"Distribution: {self.distribution.__class__.__name__}\n"
+            f"Global pruning: {self.global_pruning}\n"
             f"Grown weights init to: {grown_weights_init}\n"
             "Re-init method for sparse weights during .prepare(): "
             f"{init_method}\n"

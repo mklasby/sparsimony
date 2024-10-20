@@ -6,7 +6,7 @@ from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 from sparsimony.distributions.base import BaseDistribution
 from sparsimony.schedulers.base import BaseScheduler
 from sparsimony.utils import get_mask, get_original_tensor
-from sparsimony.dst.base import DSTMixin, GlobalPruningDataHelper
+from sparsimony.dst.base import DSTMixin
 from sparsimony.mask_calculators import (
     NMPruner,
     NMGrower,
@@ -86,6 +86,8 @@ class SSET(DSTMixin, BaseSparsifier):
             padding_dim=self.padding_dim,
             permute_conv_to_nhwc=self.permute_conv_to_nhwc,
         )
+        if self.global_pruning:
+            raise ValueError("Cannot use global pruning with SSET")
 
     def _step(self) -> bool:
         _topo_updated = False
@@ -127,23 +129,3 @@ class SSET(DSTMixin, BaseSparsifier):
             mask = get_mask(config["module"], config["tensor_name"])
             weights = getattr(config["module"], config["tensor_name"])
             self.prune_mask(config["sparsity"], mask, weights)
-
-    def _global_step(self, prune_ratio: float) -> None:
-        global_data_helper = GlobalPruningDataHelper(
-            self.groups, self.global_buffers_cpu_offload
-        )
-        target_sparsity = self.get_sparsity_from_prune_ratio(
-            global_data_helper.masks, prune_ratio
-        )
-        self.prune_mask(
-            target_sparsity,
-            global_data_helper.masks,
-            values=global_data_helper.sparse_weights,
-        )
-        self.grow_mask(
-            self.sparsity,
-            global_data_helper.masks,
-            global_data_helper.original_weights,
-        )
-        self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
-        global_data_helper.reshape_and_assign_masks()

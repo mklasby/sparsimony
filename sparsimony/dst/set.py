@@ -48,11 +48,14 @@ class SET(DSTMixin, BaseSparsifier):
         self._step_count += 1
         prune_ratio = self.scheduler(self._step_count)
         if prune_ratio is not None:
-            self._distribute_sparsity(self.sparsity)
-            for config in self.groups:
-                config["prune_ratio"] = prune_ratio
-                self.update_mask(**config)
-            self._broadcast_masks()
+            if self.global_pruning:
+                self._global_step(prune_ratio)
+            else:
+                self._distribute_sparsity(self.sparsity)
+                for config in self.groups:
+                    config["prune_ratio"] = prune_ratio
+                    self.update_mask(**config)
+                self._broadcast_masks()
             _topo_updated = True
         self._step_count += 1
         return _topo_updated
@@ -78,6 +81,9 @@ class SET(DSTMixin, BaseSparsifier):
 
     def _initialize_masks(self) -> None:
         self._distribute_sparsity(self.sparsity)
+        if self.global_pruning:
+            self._global_init_prune()
+            return
         for config in self.groups:
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
