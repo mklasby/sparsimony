@@ -79,8 +79,9 @@ class SRigL(DSTMixin, BaseSparsifier):
             ]
         else:
             self.pruner = UnstructuredPruner(MagnitudeScorer)
-        # TODO: Refactor to use ablatedTileScorer in hierarchical calc?
         self.grower = FFIGrower(scorer=MagnitudeScorer)
+        if self.global_pruning:
+            raise ValueError("Cannot use global pruning with SRigL/NMSRigL")
 
     def prune_mask(
         self,
@@ -281,11 +282,6 @@ class SRigL(DSTMixin, BaseSparsifier):
             raise RuntimeError(
                 f"FFI Violation found: {ffi.unique()} ffi's in layer {fqn}"
             )
-
-    def _global_step(self, prune_ratio: float) -> None:
-        raise NotImplementedError(
-            "Global pruning not applicable for SRigL/NMSRigL"
-        )
 
 
 class NMSRigL(SRigL):
