@@ -60,7 +60,7 @@ class SRigL(DSTMixin, BaseSparsifier):
             **kwargs,
         )
         if self.gamma_sal is not None:  # dynamic ablation
-            # TODO: Override scores wipes out our inactive scores
+
             def agg_fn(scores: List[torch.Tensor]):
                 scores = tuple(scores)
                 return torch.logical_or(*scores)
@@ -389,7 +389,7 @@ class NMSRigL(SRigL):
         try:
             mask_view = mask.view(-1, self.m)
         except RuntimeError as e:
-            self._logger.error(f"fqn: {fqn:}")
+            self._logger.error(f"fqn: {fqn}")
             raise e
         ones = torch.count_nonzero(mask_view, dim=-1)
         if (ones != self.n).all():

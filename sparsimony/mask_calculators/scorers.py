@@ -6,9 +6,6 @@ import torch
 import torch.distributed as dist
 
 
-# TODO: Then UnstructuredMagnitudePruner + UnstrcturedRandomGrower then test SET
-
-
 class ScoreOverrides:
     # TODO: Convert score_override into tensor subclass
     # TODO: Do we need a pass through sentinel?
@@ -109,6 +106,15 @@ class ABCScorer(ABC):
         )
         return score_override
 
+    @classmethod
+    def _reshape_t_as_view(cls, t: torch.Tensor, view: str | Tuple[int]):
+        if view == "neuron":
+            return view_tensor_as_neuron(t)
+        elif isinstance(view, Tuple):
+            return t.view(view)
+        else:
+            raise NotImplementedError(f"Tile view {view} not supported!")
+
 
 class MagnitudeScorer(ABCScorer):
 
@@ -133,7 +139,6 @@ class RandomScorer(ABCScorer):
 
 
 class AblatedTileScorer(ABCScorer):
-    # TODO: Can use NM below instead?
 
     @classmethod
     def score(
@@ -161,21 +166,16 @@ class AblatedTileScorer(ABCScorer):
             score_override = cls._reshape_t_as_view(score_override, _orig_shape)
         return score_override
 
-    @classmethod
-    def _reshape_t_as_view(cls, t: torch.Tensor, view: str | Tuple[int]):
-        if view == "neuron":
-            return view_tensor_as_neuron(t)
-        elif isinstance(view, Tuple):
-            return t.view(view)
-        else:
-            raise NotImplementedError(f"Tile view {view} not supported!")
-
 
 class NMStructureScorer(ABCScorer):
+    """Generates an override with top n elements per tile set to
+    ScoreOverrides.INELIGIBLE
+    """
 
     @classmethod
     def score(
         cls,
+        scorer: ABCScorer,
         mask: torch.Tensor,
         n: int,
         m: int,
@@ -183,28 +183,28 @@ class NMStructureScorer(ABCScorer):
         *args,
         **kwargs,
     ):
-        # TODO: Use context manager for reshaping
         tile_view = (-1, m)
-        score_override = cls.init_score_override(mask, score_override)
         _orig_shape = mask.shape
+        # TODO: expose values arg and reshape to unstructured?
+        scores = scorer.score(*args, **kwargs)
+        score_override = cls.init_score_override(mask, score_override)
+        # TODO: Use context manager for reshaping
         mask = cls._reshape_t_as_view(mask, tile_view)
         score_override = cls._reshape_t_as_view(score_override, tile_view)
-        completed_tile_idx = torch.argwhere(
-            torch.count_nonzero(mask, dim=-1) == n
-        ).flatten()
-        score_override[completed_tile_idx] = ScoreOverrides.INELIGIBLE
+        scores = cls._reshape_t_as_view(scores, tile_view)
+
+        for tile_idx, score in enumerate(scores):
+            _, indices = torch.topk(score, k=n, largest=True)
+            score_override[tile_idx] = score_override[tile_idx].scatter(
+                dim=-1,
+                index=indices,
+                src=torch.full_like(
+                    score_override[tile_idx], ScoreOverrides.INELIGIBLE
+                ),
+            )
         mask = cls._reshape_t_as_view(mask, _orig_shape)
         score_override = cls._reshape_t_as_view(score_override, _orig_shape)
         return score_override
-
-    @classmethod
-    def _reshape_t_as_view(cls, t: torch.Tensor, view: str | Tuple[int]):
-        if view == "neuron":
-            return view_tensor_as_neuron(t)
-        elif isinstance(view, Tuple):
-            return t.view(view)
-        else:
-            raise NotImplementedError(f"Tile view {view} not supported!")
 
 
 # MetaScorers
