@@ -8,7 +8,7 @@ from sparsimony.distributions.base import BaseDistribution
 from sparsimony.parametrization.fake_sparsity import FakeSparsity
 from sparsimony.mask_calculators import UnstructuredPruner, MagnitudeScorer
 from sparsimony.utils import get_mask
-from sparsimony.schedulers.base import BaseScheduler, StaticSchedule
+from sparsimony.schedulers.base import BaseScheduler, StaticScheduler
 
 
 class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
@@ -24,7 +24,7 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
     ):
         optimizer = optimizer
         if scheduler is None:
-            scheduler = StaticSchedule()
+            scheduler = StaticScheduler()
         self.scheduler = scheduler
         self.distribution = distribution
         self.sparsity = sparsity
