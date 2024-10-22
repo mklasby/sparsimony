@@ -180,9 +180,9 @@ class DSTMixin(ABC):
             except AssertionError:
                 self._logger.debug(
                     "Assertion checks failed on newly initialized values!\n"
-                    f"Found {(unequal_elements[mask == 1]==False).sum(dtype=torch.int).item()}"  # noqa
+                    f"Found {(unequal_elements[mask == 1]==False).sum().item()}"  # noqa
                     " values that had the same value after reinit and "
-                    f"{(unequal_elements[mask==0].any()==True).sum(dtype=torch.int).item()}"  # noqa
+                    f"{(unequal_elements[mask==0].any()==True).sum().item()}"  # noqa
                     f" reinit masked values in layer: {config['tensor_fqn']}."
                 )
 
@@ -197,7 +197,7 @@ class DSTMixin(ABC):
         sparse_config: Dict[str, Any],
     ):
         _start = time.time()
-        self._logger.debug("Preparing masks...")
+        self._logger.info("Preparing masks...")
         super().prepare(model, sparse_config)
         self._initialize_masks()
         _ = self._cast_masks(dtype=self._MASK_DTYPE)
@@ -205,7 +205,7 @@ class DSTMixin(ABC):
         self.adjust_init_for_sparsity()
         self.zero_inactive_param_momentum_buffers()
         self.prepared_ = True
-        self._logger.debug(f"Masks prepared in {time.time()-_start} seconds.")
+        self._logger.info(f"Masks prepared in {time.time()-_start} seconds.")
 
     def _broadcast_masks(self) -> None:
         for config in self.groups:
@@ -213,7 +213,7 @@ class DSTMixin(ABC):
             self._broadcast_tensor(mask)
 
     def calculate_mask_sparsity(self, mask: torch.Tensor):
-        return 1 - (mask.sum(dtype=torch.int) / mask.numel())
+        return 1 - (mask.sum() / mask.numel())
 
     def calculate_global_sparsity(self):
         total_el = 0
@@ -221,7 +221,7 @@ class DSTMixin(ABC):
         for config in self.groups:
             mask = get_mask(config["module"], config["tensor_name"])
             total_el += mask.numel()
-            nnz_el += mask.sum(dtype=torch.int)
+            nnz_el += mask.sum()
         return 1 - (nnz_el / total_el)
 
     @classmethod
@@ -313,9 +313,7 @@ class DSTMixin(ABC):
                     self.calculate_mask_sparsity(mask).item()
                 )
                 active_neurons.append(
-                    torch.vmap(neuron_is_active)(mask)
-                    .sum(dtype=torch.int)
-                    .item()
+                    torch.vmap(neuron_is_active)(mask).sum().item()
                 )
                 total_neurons.append(len(mask))
             active_vs_total_neurons = []
@@ -399,9 +397,7 @@ class DSTMixin(ABC):
         for config in self.groups:
             mask = get_mask(**config)
             mask_flat = mask.view(mask.shape[0], -1)
-            active_neurons += mask_flat.sum(
-                dim=-1, dtype=torch.int
-            ).count_nonzero()
+            active_neurons += mask_flat.sum(dim=-1).count_nonzero()
             total_neurons += mask_flat.shape[0]
         return active_neurons / total_neurons
 

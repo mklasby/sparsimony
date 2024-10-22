@@ -74,10 +74,12 @@ class NMCalculatorBase(ABCMaskCalculator):
         **kwargs,
     ) -> torch.Tensor:
         if sparsity is not None:
-            self._logger.debug(
-                f"Sparsity value of {sparsity} passed to N:M calculator, mask "
-                f"may not conform to {self.n}:{self.m} depending on sparsity."
-            )
+            if sparsity != self.n / self.m:
+                self._logger.debug(
+                    f"Sparsity value of {sparsity} passed to N:M calculator, "
+                    f"mask may not conform to {self.n}:{self.m} depending on "
+                    "algorithm i.e., if you are NOT gradual pruning."
+                )
         wrapped_func = super().calculate_mask
 
         @view_tensors_as(

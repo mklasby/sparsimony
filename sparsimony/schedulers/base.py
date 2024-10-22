@@ -24,7 +24,7 @@ class BaseScheduler(ABC):
     def __call__(self, step: int) -> Optional[float]: ...
 
 
-class StaticSchedule(BaseScheduler):
+class StaticScheduler(BaseScheduler):
     def __init__(self, *args, **kwargs):
         return
 
