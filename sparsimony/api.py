@@ -5,18 +5,21 @@ from sparsimony.distributions.base import (
     BaseDistribution,
     UniformDistribution,
     ERKDistribution,
+    UniformNMDistribution,
 )
 from sparsimony.schedulers.base import (
     AcceleratedCubicScheduler,
     BaseScheduler,
     ConstantScheduler,
     CosineDecayScheduler,
+    StaticScheduler,
 )
 from sparsimony.dst.rigl import RigL
 from sparsimony.dst.srigl import SRigL, NMSRigL
 from sparsimony.dst.set import SET
 from sparsimony.dst.gmp import GMP
 from sparsimony.dst.static import StaticMagnitudeSparsifier
+from sparsimony.pruners import SRSTESparsifier
 
 
 def rigl(
@@ -294,3 +297,19 @@ def srigl(
         gamma_sal=gamma_sal,
         no_ablation_last_layer=no_ablation_last_layer,
     )
+
+
+def srste(
+    scheduler: None | BaseScheduler = None,
+    distribution: None | BaseDistribution = None,
+    n: int = 2,
+    m: int = 4,
+    decay: None | float = 2e-4,
+    *args,
+    **kwargs,
+) -> SRSTESparsifier:
+    if scheduler is None:
+        scheduler = StaticScheduler()
+    if distribution is None:
+        distribution = UniformNMDistribution(n=n, m=m)
+    return SRSTESparsifier(scheduler, distribution, n, m, decay)

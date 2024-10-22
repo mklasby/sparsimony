@@ -283,34 +283,98 @@ class InvalidSparseDistribution(Exception):
     pass
 
 
-# class UniformNMDistribution(UniformDistribution):
-#     def __init__(
-#         self,
-#         skip_first_layer: bool = False,
-#         skip_last_layer: bool = False,
-#         excluded_types: Optional[List[type]] = None,
-#         excluded_mod_name_regexs: Optional[List[type]] = None,
-#     ):
-#         super().__init__(
-#             skip_first_layer,
-#             skip_last_layer,
-#             excluded_types,
-#             excluded_mod_name_regexs,
-#             excluded_modules_in_param_count=False,
-#         )
+# TODO: Could refactor as mixin if we think we want to support more general
+# mixed N:M
+class UniformNMDistribution(UniformDistribution):
+    def __init__(
+        self,
+        n: int = 2,
+        m: int = 4,
+        skip_first_layer: bool = False,
+        skip_last_layer: bool = False,
+        excluded_types: Optional[List[type]] = None,
+        excluded_mod_name_regexs: Optional[List[type]] = None,
+        strict: bool = False,
+    ):
+        super().__init__(
+            skip_first_layer,
+            skip_last_layer,
+            excluded_types,
+            excluded_mod_name_regexs,
+            excluded_modules_in_param_count=False,
+        )
+        self.n = n
+        self.m = m
+        self.strict = strict
+        self._tensors_with_valid_shape = []  # cache for shape checks
 
-#     def _should_exclude(
-#         self,
-#         mod: nn.Module,
-#         name: str,
-#         layer_id: int,
-#         group_len: int,
-#         tensor_name: str,
-#     ) -> bool:
-#         t = getattr(mod, tensor_name)
-#         if len(t.shape) == 4:  # conv
-#             if t.shape[1] % 4 != 0:
-#                 return True
-#         return super()._should_exclude(
-#             mod, name, layer_id, group_len, tensor_name
-#         )
+    def _tensors_not_divisible_by_m(
+        self,
+        mod: nn.Module,
+        name: str,
+        tensor_name: str,
+    ) -> bool:
+        if name in self._tensors_with_valid_shape:
+            return False
+        t = getattr(mod, tensor_name)
+        # TODO: If we have permuted conv we may need to change idx of input dim
+        if math.prod(t.shape) % self.m != 0:
+            # Can't even view as (-1, self.m) -> exclude
+            self._logger.warning(
+                f"Tensor shape input dimension is not a multiple of {self.m}, "
+                f"this tensor ({name}) with shape ({t.shape}) "
+                "will be excluded from pruning."
+            )
+            self.excluded_mod_name_regexs.append(name)
+            return True
+        # TODO: If we have permuted conv we may need to change idx of input dim
+        # TODO: Add future shape constraints based on dtype as well as int8/fp8
+        # may have different constraints depending on kernel
+        # below is for 16 bit dtypes. Need to check 128 for fp8/int8
+        if (
+            self.n == 2
+            and self.m == 4
+            and t.shape[1] % 64 != 0
+            or t.shape[0] % 64
+        ):
+            if not self.strict:
+                self._logger.warning(
+                    f"Tensor shape is not a multiple of 64, this tensor "
+                    "may not work with torch 2:4 semi-structured kernels!\n"
+                    f"Mask shape: {t.shape} found at {name}.\nThis "
+                    "tensor will still be pruned since distribution.strict is "
+                    "False"
+                )
+                self._tensors_with_valid_shape.append(name)
+                return False
+            else:
+                self._logger.warning(
+                    f"Tensor shape is not a multiple of 64, this tensor "
+                    "may not work with torch 2:4 semi-structured kernels!\n"
+                    f"Mask shape: {t.shape} found at {name}.\nExcluding"
+                    " this tensor as distribution.strict is True"
+                )
+                self.excluded_mod_name_regexs.append(name)
+                return True
+        # If we made it his far, shape is validated and we cache the result
+        self._tensors_with_valid_shape.append(name)
+        self._logger.debug(
+            f"{self.n}:{self.m} validated for {name} with shape {t.shape}"
+        )
+        return False
+
+    def _should_exclude(
+        self,
+        mod: nn.Module,
+        name: str,
+        layer_id: int,
+        group_len: int,
+        tensor_name: str,
+    ) -> bool:
+        should_exclude = super()._should_exclude(
+            mod, name, layer_id, group_len, tensor_name
+        )
+        if should_exclude:
+            return True
+        # If not explicitly excluded, we check shape
+        return self._tensors_not_divisible_by_m(mod, name, tensor_name)
