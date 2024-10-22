@@ -1,9 +1,10 @@
 import pytest
 import torch
 
-from sparsimony.mask_calculators.unstructured import (
-    UnstructuredRandomGrower,
-    UnstructuredGradientGrower,
+from sparsimony.mask_calculators import (
+    UnstructuredGrower,
+    MagnitudeScorer,
+    RandomScorer,
 )
 
 
@@ -36,7 +37,7 @@ from sparsimony.mask_calculators.unstructured import (
 )
 def mask(request):
     mask_size, init_sparsity = request.param
-    _mask = torch.zeros(size=mask_size, dtype=torch.float)
+    _mask = torch.zeros(size=mask_size, dtype=torch.bool)
     n_ones = int(_mask.numel() * (1 - init_sparsity))
     scores = torch.rand(size=_mask.shape)
     _, idx = torch.topk(scores.view(-1), k=n_ones, largest=True)
@@ -56,21 +57,20 @@ def sparsity(request):
 
 @pytest.fixture
 def dense_grads(mask):
-    return torch.rand_like(mask)
+    return torch.rand_like(mask, dtype=torch.float)
 
 
 def test_unstructured_random_grower(mask, sparsity):
-    n_grow = int(mask.numel() * (1 - sparsity)) - int(
-        mask.sum(dtype=torch.int).item()
-    )
+    grower = UnstructuredGrower(RandomScorer)
+    n_grow = int(mask.numel() * (1 - sparsity)) - int(mask.sum().item())
     if n_grow < 0:
         with pytest.raises(RuntimeError) as excinfo:
-            grown_mask = UnstructuredRandomGrower.calculate_mask(sparsity, mask)
+            grown_mask = grower.calculate_mask(sparsity, mask, values=mask)
         assert f"{int(mask.sum(dtype=torch.int).item())}" in str(excinfo.value)
         assert str(int(mask.numel() * (1 - sparsity))) in str(excinfo.value)
         return
     else:
-        grown_mask = UnstructuredRandomGrower.calculate_mask(sparsity, mask)
+        grown_mask = grower.calculate_mask(sparsity, mask, values=mask)
     # Assertions
     assert grown_mask.shape == mask.shape
 
@@ -79,14 +79,13 @@ def test_unstructured_random_grower(mask, sparsity):
 
 
 def test_unstructured_pruners(mask, sparsity, dense_grads):
+    grower = UnstructuredGrower(MagnitudeScorer)
     n_grow = int(mask.numel() * (1 - sparsity)) - int(
         mask.sum(dtype=torch.int).item()
     )
     if n_grow < 0:
         with pytest.raises(RuntimeError) as excinfo:
-            _ = UnstructuredGradientGrower.calculate_mask(
-                sparsity, mask, dense_grads
-            )
+            _ = grower.calculate_mask(sparsity, mask, values=dense_grads)
         assert f"{int(mask.sum(dtype=torch.int).item())}" in str(excinfo.value)
         assert str(int(mask.numel() * (1 - sparsity))) in str(excinfo.value)
         return
@@ -105,9 +104,7 @@ def test_unstructured_pruners(mask, sparsity, dense_grads):
         src=torch.full_like(dense_grads.view(-1), 100),
     ).reshape(dense_grads.shape)
     # Call the method to be tested
-    grown_mask = UnstructuredGradientGrower.calculate_mask(
-        sparsity, mask, grads=dense_grads
-    )
+    grown_mask = grower.calculate_mask(sparsity, mask, values=dense_grads)
 
     # Assertions
     assert grown_mask.shape == mask.shape
