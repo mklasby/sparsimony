@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Any
 
 import torch
 import torch.nn as nn
@@ -9,9 +9,7 @@ from sparsimony.mask_calculators import MagnitudeScorer, NMPruner
 
 class STE(autograd.Function):
     @staticmethod
-    def setup_context(
-        ctx: torch.Any, inputs: Tuple[torch.Any], output: torch.Any
-    ) -> torch.Any:
+    def setup_context(ctx: Any, inputs: Tuple[Any], output: Any) -> Any:
         pass
 
     @staticmethod
@@ -25,9 +23,7 @@ class STE(autograd.Function):
 
 class SRSTE(autograd.Function):
     @staticmethod
-    def setup_context(
-        ctx: torch.Any, inputs: Tuple[torch.Any], output: torch.Any
-    ) -> torch.Any:
+    def setup_context(ctx: Any, inputs: Tuple[Any], output: Any) -> Any:
         weights, mask, decay = inputs
         ctx.decay = decay
         ctx.save_for_backward(weights, mask)
