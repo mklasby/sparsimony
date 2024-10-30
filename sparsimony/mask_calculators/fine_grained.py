@@ -74,7 +74,7 @@ class NMCalculatorBase(ABCMaskCalculator):
         **kwargs,
     ) -> torch.Tensor:
         if sparsity is not None:
-            if sparsity != self.n / self.m:
+            if sparsity != (1 - self.n / self.m):
                 self._logger.debug(
                     f"Sparsity value of {sparsity} passed to N:M calculator, "
                     f"mask may not conform to {self.n}:{self.m} depending on "

@@ -34,7 +34,7 @@ class SRSTESparsifier(BaseSparsifier):
         self.distribution = distribution
         self.n = n
         self.m = m
-        self.sparsity = n / m
+        self.sparsity = 1 - n / m
         self.decay = decay
         if defaults is None:
             defaults = {}
@@ -57,7 +57,7 @@ class SRSTESparsifier(BaseSparsifier):
         _start = time.time()
         self._logger.info("Preparing masks...")
         super().prepare(model, sparse_config)
-        self.distribution(self.n / self.m, self.groups)
+        self.distribution((1 - self.n / self.m), self.groups)
         for config in self.groups:
             # Update n in case distribution modified sparsity targets
             self.update_mask(**config)
@@ -71,7 +71,7 @@ class SRSTESparsifier(BaseSparsifier):
         prune_ratio = self.scheduler(self._step_count)
         if prune_ratio is not None:
             _topo_updated = True
-            self.distribution(self.n / self.m, self.groups)
+            self.distribution((1 - self.n / self.m), self.groups)
             for config in self.groups:
                 self._update_mask(**config)
         return _topo_updated
@@ -81,7 +81,7 @@ class SRSTESparsifier(BaseSparsifier):
         self, module: nn.Module, tensor_name: str, sparsity: float, **kwargs
     ):
         parametrization = get_parametrization(module, tensor_name)
-        new_n = math.floor(sparsity * self.m)
+        new_n = math.floor((1 - sparsity) * self.m)
         parametrization.n = new_n
 
     # @override
