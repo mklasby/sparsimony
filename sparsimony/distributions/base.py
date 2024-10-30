@@ -141,6 +141,10 @@ class UniformDistribution(BaseDistribution):
     ) -> List[Dict[str, Any]]:
         if sparsity in self._cache:
             return self._cache_loader(sparsity, groups)
+        self._logger.debug(
+            f"Sparsity {sparsity} not found in distribution cache."
+            " Calculating..."
+        )
         if not self.excluded_modules_in_param_count:
             for layer_idx, layer_config in enumerate(groups):
                 if self._should_exclude(

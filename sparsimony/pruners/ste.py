@@ -1,4 +1,3 @@
-import math
 import time
 from typing import Optional, Dict, Any
 import logging
@@ -11,9 +10,9 @@ from torch.nn.utils.parametrize import (
 from torch.ao.pruning.sparsifier.base_sparsifier import BaseSparsifier
 
 from sparsimony.distributions.base import BaseDistribution
-from sparsimony.utils import get_mask, get_parametrization
+from sparsimony.utils import get_mask
 from sparsimony.schedulers.base import BaseScheduler
-
+from sparsimony.mask_calculators import MagnitudeScorer, NMPruner
 from sparsimony.parametrization.ste_parametrization import (
     FakeSparsitySRSTE,
     FakeSparsitySTE,
@@ -36,6 +35,10 @@ class SRSTESparsifier(BaseSparsifier):
         self.m = m
         self.sparsity = 1 - n / m
         self.decay = decay
+        self._logger = logging.getLogger(__name__)
+        self.prepared_ = False
+        self._step_count = 0
+        self.pruner = NMPruner(MagnitudeScorer, n=self.n, m=self.m)
         if defaults is None:
             defaults = {}
         ste_parametrization = (
@@ -43,9 +46,6 @@ class SRSTESparsifier(BaseSparsifier):
         )
         defaults["parametrization"] = ste_parametrization
         super().__init__(defaults)
-        self._logger = logging.getLogger(__name__)
-        self.prepared_ = False
-        self._step_count = 0
 
     # @overide
     @torch.no_grad()
@@ -66,6 +66,8 @@ class SRSTESparsifier(BaseSparsifier):
 
     # @override
     def step(self) -> bool:
+        self._logger.debug("SR-STE step() in prog...")
+        start = time.time()
         _topo_updated = False
         self._step_count += 1
         prune_ratio = self.scheduler(self._step_count)
@@ -73,16 +75,35 @@ class SRSTESparsifier(BaseSparsifier):
             _topo_updated = True
             self.distribution((1 - self.n / self.m), self.groups)
             for config in self.groups:
-                self._update_mask(**config)
+                self.update_mask(**config)
+        self._logger.debug(
+            f"SR-STE step completd in {time.time() - start} seconds"
+        )
         return _topo_updated
 
     # @override
     def update_mask(
-        self, module: nn.Module, tensor_name: str, sparsity: float, **kwargs
+        self,
+        module: nn.Module,
+        tensor_name: str,
+        sparsity: float,
+        tensor_fqn: str,
+        **kwargs,
     ):
-        parametrization = get_parametrization(module, tensor_name)
-        new_n = math.floor((1 - sparsity) * self.m)
-        parametrization.n = new_n
+        self._logger.debug(f"Updating mask for {tensor_fqn}...")
+        mask = get_mask(module, tensor_name)
+        # set all elements to active after optim step and reprune
+        mask.data = torch.ones_like(mask, dtype=torch.bool)
+        if sparsity == 0:
+            return
+        original_weights = getattr(
+            module.parametrizations, tensor_name
+        ).original
+        mask.data = self.pruner.calculate_mask(
+            self.sparsity, mask, values=original_weights
+        )
+        self._assert_sparsity_level(mask, sparsity)
+        self._assert_structure(mask, tensor_fqn)
 
     # @override
     def _prepare(self, *args, **kwargs):
@@ -91,10 +112,13 @@ class SRSTESparsifier(BaseSparsifier):
             module = config["module"]
             tensor_name = config["tensor_name"]
             parametrization = config.get("parametrization")
+            mask = torch.ones_like(
+                getattr(module, tensor_name), dtype=torch.bool
+            )
             register_parametrization(
                 module,
                 tensor_name,
-                parametrization(n=self.n, m=self.m, decay=self.decay),
+                parametrization(mask, n=self.n, m=self.m, decay=self.decay),
             )
 
     def calculate_global_sparsity(self):
@@ -141,3 +165,41 @@ class SRSTESparsifier(BaseSparsifier):
 
     def __repr__(self) -> str:
         return self.__str__()
+
+    def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
+        n_ones = mask.count_nonzero()
+        target_n_ones = int(mask.numel() * (1 - sparsity_level))
+        # We ignore off-by-one errors as these will be due to floor ops
+        if n_ones != target_n_ones and abs(n_ones - target_n_ones) > 1:
+            # With very large mask tensors, we may have some precision errors
+            # with exact n_ones. Therefore, we simply log the warning instead of
+            # raising.
+            # Also naturally occurs in structured pruning
+            # TODO: For structured pruning we may wish to calculate
+            # actual_n_ones based on network topology
+            self._logger.warning(
+                f"n_ones actual {n_ones} != n_one target {target_n_ones}"
+            )
+
+    def _assert_structure(self, mask, fqn: str) -> None:
+        if self.n == 2 and self.m == 4:
+            if mask.shape[1] % 64 != 0:
+                self._logger.warning(
+                    f"Mask shape is not a multiple of 64, this weight tensor "
+                    "may not work with torch 2:4 semi-structured kernels!\n"
+                    f"Mask shape: {mask.shape} found at {fqn}"
+                )
+        try:
+            mask_view = mask.view(-1, self.m)
+        except RuntimeError as e:
+            self._logger.error(f"fqn: {fqn}")
+            raise e
+        ones = torch.count_nonzero(mask_view, dim=-1)
+        if (ones != self.n).all():
+            self._logger.warning(
+                f"{fqn} mask is not {self.n}:{self.m} pruned! Ones Tensor:\n"
+                f"{ones}"
+            )
+            raise RuntimeError(
+                f"N:M Violation found: {ones.unique()} n's in layer {fqn}"
+            )

@@ -5,7 +5,11 @@ import logging
 
 import torch
 
-from sparsimony.utils import calculate_per_tile_n_ones, view_tensors_as  # noqa
+from sparsimony.utils import (  # noqa
+    calculate_per_tile_n_ones,
+    view_tensors_as,
+    timing,
+)
 from .scorers import ABCScorer
 
 
@@ -108,10 +112,10 @@ class FineGrainedPruner(BasePruner):
         *args,
         **kwargs,
     ) -> torch.Tensor:
+
         n_ones_per_tile_target = calculate_per_tile_n_ones(mask, sparsity)
-        n_drop_per_tile = torch.tensor(
-            [tile.sum().item() - n_ones_per_tile_target for tile in mask],
-            dtype=torch.int,
+        n_drop_per_tile = (mask.sum(dim=-1) - n_ones_per_tile_target).to(
+            torch.int
         )
         if not self._verify_mask_update(
             n, n_ones_per_tile_target, n_drop_per_tile
