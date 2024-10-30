@@ -49,12 +49,12 @@ class SRSTE(autograd.Function):
 class FakeSparsitySTE(nn.Module):
     def __init__(self, n: int = 2, m: int = 4, *args, **kwargs):
         super().__init__()
-        self.sparsity = n / m
+        self.sparsity = 1 - n / m
 
     def forward(self, weights):
         pruner = NMPruner(MagnitudeScorer, n=self.n, m=self.m)
         mask = pruner.calculate_mask(
-            self.n / self.m,
+            1 - (self.n / self.m),
             torch.ones_like(weights, dtype=torch.bool),
             values=weights,
         )
@@ -66,7 +66,7 @@ class FakeSparsitySTE(nn.Module):
 
     @property
     def sparsity(self):
-        return self.n / self.m
+        return 1 - (self.n / self.m)
 
 
 class FakeSparsitySRSTE(nn.Module):
@@ -81,7 +81,7 @@ class FakeSparsitySRSTE(nn.Module):
     def forward(self, weights):
         pruner = NMPruner(MagnitudeScorer, n=self.n, m=self.m)
         mask = pruner.calculate_mask(
-            self.n / self.m,
+            1 - self.n / self.m,
             torch.ones_like(weights, dtype=torch.bool),
             values=weights,
         )
@@ -93,4 +93,4 @@ class FakeSparsitySRSTE(nn.Module):
 
     @property
     def sparsity(self):
-        return self.n / self.m
+        return 1 - (self.n / self.m)
