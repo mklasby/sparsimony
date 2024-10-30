@@ -4,6 +4,9 @@ import functools
 from math import prod
 from contextlib import contextmanager  # noqa
 import math
+from functools import wraps
+from time import time
+
 
 import torch
 import torch.nn as nn
@@ -15,6 +18,26 @@ from sparsimony.parametrization.fake_sparsity import (
 )
 
 _logger = logging.getLogger(__name__)
+global __view_tensors_as_warning_logged
+__view_tensors_as_warning_logged = False
+
+
+def timing(f):
+    _logger = logging.getLogger(__name__)
+
+    @wraps(f)
+    def wrap(*args, **kw):
+        ts = time()
+        result = f(*args, **kw)
+        te = time()
+        _logger.debug(f"func: {f.__name__} took {te-ts:.4f} sec")
+        # _logger.debug(
+        #     "func:%r args:[%r, %r] took: %2.4f sec"
+        #     % (f.__name__, args, kw, te - ts)
+        # )
+        return result
+
+    return wrap
 
 
 def get_mask(
@@ -187,7 +210,21 @@ def view_tensors_as(
                 out = out.view(-1)
                 indx = torch.argwhere(~torch.isnan(out))[:, 0]
                 out = out[indx]
-            return out.reshape(original_size)
+            try:
+                return out.view(original_size)
+            except Exception as e:
+                global __view_tensors_as_warning_logged
+                if not __view_tensors_as_warning_logged:
+                    _logger.warning(
+                        "Had to reshape output from view_tensor_as. Please "
+                        "check if your input tensors to calculate_mask() are "
+                        "contiguous. If so please report this on GitHub. "
+                        "Exception:"
+                    )
+                    _logger.warning(e)
+                    __view_tensors_as_warning_logged = True
+                pass
+                return out.reshape(original_size)
 
         return wrapped_fn
 

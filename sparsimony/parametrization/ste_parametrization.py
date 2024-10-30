@@ -1,10 +1,9 @@
 from typing import Tuple, Any
 
 import torch
-import torch.nn as nn
 from torch import autograd
 
-from sparsimony.mask_calculators import MagnitudeScorer, NMPruner
+from sparsimony.parametrization.fake_sparsity import FakeSparsity
 
 
 class STE(autograd.Function):
@@ -46,20 +45,16 @@ class SRSTE(autograd.Function):
         )
 
 
-class FakeSparsitySTE(nn.Module):
-    def __init__(self, n: int = 2, m: int = 4, *args, **kwargs):
-        super().__init__()
-        self.sparsity = 1 - n / m
+class FakeSparsitySTE(FakeSparsity):
+    def __init__(
+        self, mask: torch.Tensor, n: int = 2, m: int = 4, *args, **kwargs
+    ):
+        super().__init__(mask)
+        self.n = n
+        self.m = m
 
     def forward(self, weights):
-        pruner = NMPruner(MagnitudeScorer, n=self.n, m=self.m)
-        mask = pruner.calculate_mask(
-            1 - (self.n / self.m),
-            torch.ones_like(weights, dtype=torch.bool),
-            values=weights,
-        )
-        self.mask = mask
-        return STE.apply(weights, mask)
+        return STE.apply(weights, self.mask)
 
     def __name__(self):
         return "FakeSparsitySTE"
@@ -69,24 +64,23 @@ class FakeSparsitySTE(nn.Module):
         return 1 - (self.n / self.m)
 
 
-class FakeSparsitySRSTE(nn.Module):
+class FakeSparsitySRSTE(FakeSparsity):
     def __init__(
-        self, n: int = 2, m: int = 4, decay: float = 2e-4, *args, **kwargs
+        self,
+        mask: torch.Tensor,
+        n: int = 2,
+        m: int = 4,
+        decay: float = 2e-4,
+        *args,
+        **kwargs
     ):
-        super().__init__()
+        super().__init__(mask)
         self.n = n
         self.m = m
         self.decay = decay
 
     def forward(self, weights):
-        pruner = NMPruner(MagnitudeScorer, n=self.n, m=self.m)
-        mask = pruner.calculate_mask(
-            1 - self.n / self.m,
-            torch.ones_like(weights, dtype=torch.bool),
-            values=weights,
-        )
-        self.mask = mask
-        return SRSTE.apply(weights, mask, self.decay)
+        return SRSTE.apply(weights, self.mask, self.decay)
 
     def __name__(self):
         return "FakeSparsitySRSTE"

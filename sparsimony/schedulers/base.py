@@ -32,6 +32,14 @@ class StaticScheduler(BaseScheduler):
         return None
 
 
+class AlwaysTrueScheduler(BaseScheduler):
+    def __init__(self, *args, **kwargs):
+        return
+
+    def __call__(self, *args, **kwargs):
+        return True
+
+
 class ConstantScheduler(BaseScheduler):
 
     def __init__(

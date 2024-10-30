@@ -12,7 +12,7 @@ from sparsimony.schedulers.base import (
     BaseScheduler,
     ConstantScheduler,
     CosineDecayScheduler,
-    StaticScheduler,
+    AlwaysTrueScheduler,
 )
 from sparsimony.dst.rigl import RigL
 from sparsimony.dst.srigl import SRigL, NMSRigL
@@ -309,7 +309,7 @@ def srste(
     **kwargs,
 ) -> SRSTESparsifier:
     if scheduler is None:
-        scheduler = StaticScheduler()
+        scheduler = AlwaysTrueScheduler()
     if distribution is None:
         distribution = UniformNMDistribution(n=n, m=m)
     return SRSTESparsifier(scheduler, distribution, n, m, decay)
