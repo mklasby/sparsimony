@@ -8,7 +8,6 @@ import torch
 from sparsimony.utils import (  # noqa
     calculate_per_tile_n_ones,
     view_tensors_as,
-    timing,
 )
 from .scorers import ABCScorer
 

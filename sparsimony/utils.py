@@ -22,7 +22,7 @@ global __view_tensors_as_warning_logged
 __view_tensors_as_warning_logged = False
 
 
-def timing(f):
+def time_fn(f):
     _logger = logging.getLogger(__name__)
 
     @wraps(f)
