@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import logging
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from sparsimony.utils import view_tensor_as_neuron
@@ -19,6 +20,7 @@ class ScoreOverrides:
 
 
 class ABCScorer(ABC):
+    _logger = logging.getLogger(__name__)
 
     @classmethod
     @abstractmethod
@@ -192,16 +194,12 @@ class NMStructureScorer(ABCScorer):
         mask = cls._reshape_t_as_view(mask, tile_view)
         score_override = cls._reshape_t_as_view(score_override, tile_view)
         scores = cls._reshape_t_as_view(scores, tile_view)
-
-        for tile_idx, score in enumerate(scores):
-            _, indices = torch.topk(score, k=n, largest=True)
-            score_override[tile_idx] = score_override[tile_idx].scatter(
-                dim=-1,
-                index=indices,
-                src=torch.full_like(
-                    score_override[tile_idx], ScoreOverrides.INELIGIBLE
-                ),
-            )
+        _, indices = torch.topk(scores, k=n, largest=True, dim=-1)
+        score_override = score_override.scatter(
+            dim=-1,
+            index=indices,
+            src=torch.full_like(score_override, ScoreOverrides.INELIGIBLE),
+        )
         mask = cls._reshape_t_as_view(mask, _orig_shape)
         score_override = cls._reshape_t_as_view(score_override, _orig_shape)
         return score_override
