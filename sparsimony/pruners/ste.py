@@ -28,6 +28,7 @@ class SRSTESparsifier(BaseSparsifier):
         m: int = 4,
         decay: None | float = 2e-4,
         defaults: Optional[Dict[str, Any]] = None,
+        **kwargs,
     ):
         self.scheduler = scheduler
         self.distribution = distribution
