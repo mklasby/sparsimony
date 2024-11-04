@@ -164,3 +164,24 @@ def test_prune_ratio_sparsity_conversion(mask, sparsity):
         assert expected_prune_ratio <= 0
     sparsity_test = DSTMixin.get_sparsity_from_prune_ratio(mask, prune_ratio)
     assert sparsity == round(sparsity_test, 2)
+
+def test_non_contiguous_params(caplog):
+    mod = nn.Linear(10, 10)
+    mod.weight = mod.weight[:, :5]  # convert to 10 out, 5 in, non-contiguous
+    # Create a mock Linear layer and optimizer
+    optimizer = optim.SGD(mod.parameters(), lr=0.1, momentum=0.1)
+    # Create a DSTMixin instance
+    sparsifier = rigl(optimizer=optimizer, sparsity=0.1, t_end=100)
+    sparse_config = [
+        {"tensor_fqn": f"{fqn}.weight"}
+        for fqn, module in mod.named_modules()
+        if isinstance(module, nn.Linear) or isinstance(module, nn.Conv2d)
+    ]
+    assert not mod.weight.is_contiguous()
+    sparsifier.prepare(mod, sparse_config)
+    assert not mod.weight.is_contiguous() 
+    logged_warning = False
+    for record in caplog.records:
+        if record.contains("Must pass contiguous parameters to sparsimony sparsifers!")
+        logged_warning = True
+    assert logged_warning
