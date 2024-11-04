@@ -100,7 +100,7 @@ class SET(DSTMixin, BaseSparsifier):
         self.prune_mask(
             target_sparsity,
             global_data_helper.masks,
-            values=global_data_helper.sparse_weights,
+            values=global_data_helper.original_weights,
         )
         self.grow_mask(
             self.sparsity,

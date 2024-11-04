@@ -96,10 +96,13 @@ class ABCScorer(ABC):
         cls,
         mask: torch.Tensor,
         score_override: Optional[torch.Tensor] = None,
+        low_mem_mode: bool = False,
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        if score_override is None:
+        if low_mem_mode:
+            score_override = mask  # ONLY WORKS FOR UNSTRUCTURED
+        elif score_override is None:
             score_override = torch.clone(mask).detach().to(dtype=torch.float)
         score_override = torch.where(
             score_override != ScoreOverrides.INELIGIBLE,

@@ -28,6 +28,7 @@ class RigL(DSTMixin, BaseSparsifier):
         sparsity: float = 0.5,
         grown_weights_init: float = 0.0,
         init_method: Optional[str] = "grad_flow",
+        low_mem_mode: bool = False,
         *args,
         **kwargs,
     ):
@@ -41,8 +42,12 @@ class RigL(DSTMixin, BaseSparsifier):
         super().__init__(
             optimizer=optimizer, defaults=defaults, *args, **kwargs
         )
-        self.pruner = UnstructuredPruner(scorer=MagnitudeScorer)
-        self.grower = UnstructuredGrower(scorer=MagnitudeScorer)
+        self.pruner = UnstructuredPruner(
+            scorer=MagnitudeScorer, low_mem_mode=low_mem_mode
+        )
+        self.grower = UnstructuredGrower(
+            scorer=MagnitudeScorer, low_mem_mode=low_mem_mode
+        )
 
     def _step(self) -> bool:
         _topo_updated = False
@@ -145,7 +150,7 @@ class RigL(DSTMixin, BaseSparsifier):
         self.prune_mask(
             target_sparsity,
             global_data_helper.masks,
-            values=global_data_helper.sparse_weights,
+            values=global_data_helper.original_weights,
         )
         self.grow_mask(
             self.sparsity,
