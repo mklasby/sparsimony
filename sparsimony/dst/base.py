@@ -38,7 +38,6 @@ class DSTMixin(ABC):
         random_mask_init: bool = False,
         global_pruning: bool = False,
         global_buffers_cpu_offload: bool = True,
-        low_mem_mode: bool = False,
         *args,
         **kwargs,
     ):
@@ -72,7 +71,6 @@ class DSTMixin(ABC):
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
         self.prepared_ = False
-        self.low_mem_mode = low_mem_mode
         # Call BaseSparsifier constructor
         super().__init__(defaults=defaults, *args, **kwargs)
 
@@ -377,7 +375,7 @@ class DSTMixin(ABC):
 
     def _global_init_prune(self) -> None:
         global_data_helper = GlobalPruningDataHelper(
-            self.groups, self.global_buffers_cpu_offload, self.low_mem_mode
+            self.groups, self.global_buffers_cpu_offload
         )
         if self.random_mask_init:
             pruner = UnstructuredPruner(scorer=RandomScorer)
@@ -391,7 +389,7 @@ class DSTMixin(ABC):
             self.prune_mask(
                 self.sparsity,
                 global_data_helper.masks,
-                values=global_data_helper.sparse_weights,
+                values=global_data_helper.original_weights,
             )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()
@@ -418,13 +416,10 @@ class DSTMixin(ABC):
             if not param_tensor.is_contiguous():
                 self._logger.warning(
                     "Must pass contiguous parameters to sparsimony sparsifers!"
-                    f"Replacing non-contigious parameter: {config['tensor_fqn']}"
+                    f"Replacing non-contigious parameter: "
+                    f"{config['tensor_fqn']}"
                 )
-            setattr(
-                config["module"],
-                config["tensor_name"],
-                param_tensor.contiguous(),
-            )
+                param_tensor.contiguous()
 
 
 class GlobalPruningDataHelper:
@@ -444,12 +439,10 @@ class GlobalPruningDataHelper:
         self,
         groups: List[Dict[str, Any]],
         cpu_offload: bool = False,
-        low_mem_mode: bool = False,
     ):
         # TODO: Add support for arbirtary additional tensors (ie., dense grads)
         self.groups = groups
         self.cpu_offload = cpu_offload
-        self.low_mem_mode = low_mem_mode
         original_weights = []
         original_shapes = []
         original_numels = []
@@ -465,7 +458,7 @@ class GlobalPruningDataHelper:
                 if global_tensor_device is not None
                 else mask.device
             )
-            original_devices.append(device)
+            original_devices.append(mask.device)
             original_shapes.append(mask.shape)
             original_numels.append(mask.numel())
             weights = get_original_tensor(module, tensor_name)

@@ -28,6 +28,7 @@ class GMP(DSTMixin, BaseSparsifier):
         distribution: BaseDistribution,
         optimizer: torch.optim.Optimizer,
         defaults: Optional[Dict[str, Any]] = None,
+        low_mem_mode: bool = False,
         *args,
         **kwargs,
     ):
@@ -37,9 +38,15 @@ class GMP(DSTMixin, BaseSparsifier):
         if defaults is None:
             defaults = dict(parametrization=FakeSparsity)
         super().__init__(
-            optimizer=optimizer, defaults=defaults, *args, **kwargs
+            optimizer=optimizer,
+            defaults=defaults,
+            low_mem_mode=low_mem_mode,
+            *args,
+            **kwargs,
         )
-        self.pruner = UnstructuredPruner(MagnitudeScorer)
+        self.pruner = UnstructuredPruner(
+            MagnitudeScorer, low_mem_mode=low_mem_mode
+        )
 
     def grow_mask(
         self,
@@ -103,7 +110,7 @@ class GMP(DSTMixin, BaseSparsifier):
         self.prune_mask(
             self.sparsity,
             global_data_helper.masks,
-            values=global_data_helper.sparse_weights,
+            values=global_data_helper.original_weights,
         )
         self._assert_sparsity_level(global_data_helper.masks, self.sparsity)
         global_data_helper.reshape_and_assign_masks()

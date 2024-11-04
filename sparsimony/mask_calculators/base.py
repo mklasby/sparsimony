@@ -15,9 +15,10 @@ from .scorers import ABCScorer
 class ABCMaskCalculator(ABC):
 
     # def __init__(self, scorer: ABCScorer, tensor_shape: tuple):
-    def __init__(self, scorer: ABCScorer):
+    def __init__(self, scorer: ABCScorer, low_mem_mode: bool = False):
         self._logger = logging.getLogger(__name__)
         self.scorer = scorer
+        self.low_mem_mode = low_mem_mode
         # self.tensor_shape = tensor_shape  # TODO: move to context manager
 
     @abstractmethod
@@ -77,7 +78,9 @@ class BasePruner(ABCMaskCalculator):
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        score_override = self.scorer.init_score_override(mask, score_override)
+        score_override = self.scorer.init_score_override(
+            mask, score_override, self.low_mem_mode
+        )
         n_drop = self.calculate_n_drop(mask, sparsity)
         candidate_tiles = self.scorer.candidate_tiles(score_override)
         scores = self.scorer.score(*args, **kwargs)
@@ -225,7 +228,9 @@ class BaseGrower(ABCMaskCalculator):
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        score_override = self.scorer.init_score_override(mask, score_override)
+        score_override = self.scorer.init_score_override(
+            mask, score_override, self.low_mem_mode
+        )
         n_grow = self._calculate_n_grow(mask, sparsity)
         candidate_tiles = self.scorer.candidate_tiles(score_override)
         scores = self.scorer.score(*args, **kwargs)
