@@ -38,6 +38,7 @@ class DSTMixin(ABC):
         random_mask_init: bool = False,
         global_pruning: bool = False,
         global_buffers_cpu_offload: bool = True,
+        low_mem_mode: bool = False,
         *args,
         **kwargs,
     ):
@@ -71,6 +72,8 @@ class DSTMixin(ABC):
         self._step_count = 0
         self._logger = logging.getLogger(__name__)
         self.prepared_ = False
+        self.low_mem_mode = low_mem_mode
+        # Call BaseSparsifier constructor
         super().__init__(defaults=defaults, *args, **kwargs)
 
     def prune_mask(
@@ -199,6 +202,7 @@ class DSTMixin(ABC):
         _start = time.time()
         self._logger.info("Preparing masks...")
         super().prepare(model, sparse_config)
+        self._ensure_contiguous_params()
         self._initialize_masks()
         _ = self._cast_masks(dtype=self._MASK_DTYPE)
         self._broadcast_masks()
@@ -227,7 +231,7 @@ class DSTMixin(ABC):
     @classmethod
     def get_prune_ratio_from_sparsity(
         cls, mask: torch.Tensor, sparsity: float
-    ) -> torch.Tensor:
+    ) -> float:
         current_sparsity = (mask == 0).count_nonzero() / mask.numel()
         return round(
             ((sparsity - current_sparsity) / (1 - current_sparsity)).item(), 6
@@ -236,7 +240,7 @@ class DSTMixin(ABC):
     @classmethod
     def get_sparsity_from_prune_ratio(
         cls, mask: torch.Tensor, prune_ratio: float
-    ) -> torch.Tensor:
+    ) -> float:
         current_sparsity = (mask == 0).count_nonzero() / mask.numel()
         return round(
             (prune_ratio * (1 - current_sparsity) + current_sparsity).item(), 6
@@ -320,11 +324,6 @@ class DSTMixin(ABC):
             for a, t in list(zip(active_neurons, total_neurons)):
                 active_vs_total_neurons.append(f"{a}/{t}")
             # TODO: Should list ignored_layers from distribution
-            grown_weights_init = getattr(
-                self, "grown_weights_init", "Disabled, no regrowth"
-            )
-            init_method = getattr(self, "init_method", "Disabled, no re-init")
-
         else:
             err_message = (
                 "Error: Sparsifier's prepare() method must be called first."
@@ -333,6 +332,11 @@ class DSTMixin(ABC):
             layerwise_sparsity_actual = err_message
             layerwise_sparsity_target = err_message
             active_vs_total_neurons = err_message
+        # below are present regardless of prepared_ status
+        grown_weights_init = getattr(
+            self, "grown_weights_init", "Disabled, no regrowth"
+        )
+        init_method = getattr(self, "init_method", "Disabled, no re-init")
         return (
             f"{self.__class__.__name__}\n"
             f"Scheduler: {self.scheduler.__class__.__name__}\n"
@@ -373,12 +377,14 @@ class DSTMixin(ABC):
 
     def _global_init_prune(self) -> None:
         global_data_helper = GlobalPruningDataHelper(
-            self.groups, self.global_buffers_cpu_offload
+            self.groups, self.global_buffers_cpu_offload, self.low_mem_mode
         )
         if self.random_mask_init:
             pruner = UnstructuredPruner(scorer=RandomScorer)
             global_data_helper.masks.data = pruner.calculate_mask(
-                self.sparsity, values=global_data_helper.masks
+                self.sparsity,
+                global_data_helper.masks,
+                values=global_data_helper.masks,
             )
         else:
             # use pruning criterion
@@ -406,6 +412,20 @@ class DSTMixin(ABC):
             original_dtype = cast_mask(dtype=dtype, **config)
         return original_dtype
 
+    def _ensure_contiguous_params(self) -> None:
+        for config in self.groups:
+            param_tensor = get_original_tensor(**config)
+            if not param_tensor.is_contiguous():
+                self._logger.warning(
+                    "Must pass contiguous parameters to sparsimony sparsifers!"
+                    f"Replacing non-contigious parameter: {config['tensor_fqn']}"
+                )
+            setattr(
+                config["module"],
+                config["tensor_name"],
+                param_tensor.contiguous(),
+            )
+
 
 class GlobalPruningDataHelper:
     """Data helper for loading, concatenating, and flattening masks and weights.
@@ -420,39 +440,43 @@ class GlobalPruningDataHelper:
             to False.
     """
 
-    def __init__(self, groups: List[Dict[str, Any]], cpu_offload: bool = False):
+    def __init__(
+        self,
+        groups: List[Dict[str, Any]],
+        cpu_offload: bool = False,
+        low_mem_mode: bool = False,
+    ):
+        # TODO: Add support for arbirtary additional tensors (ie., dense grads)
         self.groups = groups
         self.cpu_offload = cpu_offload
+        self.low_mem_mode = low_mem_mode
         original_weights = []
-        sparse_weights = []
         original_shapes = []
         original_numels = []
         original_devices = []
         masks = []
+        global_tensor_device = "cpu" if self.cpu_offload else None
         for config in self.groups:
             module = config["module"]
             tensor_name = config["tensor_name"]
             mask = get_mask(module, tensor_name)
-            original_devices.append(mask.device)
+            device = (
+                global_tensor_device
+                if global_tensor_device is not None
+                else mask.device
+            )
+            original_devices.append(device)
             original_shapes.append(mask.shape)
             original_numels.append(mask.numel())
-            sparse_weight = getattr(module, tensor_name)
             weights = get_original_tensor(module, tensor_name)
             if dist.is_initialized():
                 # All reduce here since once we transfer to CPU backend we
                 # we cannot use dist utils with NCCL backend.
                 dist.all_reduce(weights, dist.ReduceOp.AVG, async_op=False)
-                dist.all_reduce(
-                    sparse_weight, dist.ReduceOp.AVG, async_op=False
-                )
-                dist.all_reduce(mask, dist.ReduceOp.AVG, async_op=False)
-            original_weights.append(weights.flatten())
-            masks.append(mask.flatten())
-            sparse_weights.append(sparse_weight.flatten())
-        device = "cpu" if self.cpu_offload else self._original_device
-        self.original_weights = torch.concat(original_weights).to(device)
-        self.sparse_weights = torch.concat(sparse_weights).to(device)
-        self.masks = torch.concat(masks).to(device)
+            original_weights.append(weights.flatten().to(device))
+            masks.append(mask.flatten().to(device))
+        self.original_weights = torch.concat(original_weights)
+        self.masks = torch.concat(masks)
         self.original_shapes = original_shapes
         self.original_numels = original_numels
         self.original_devices = original_devices

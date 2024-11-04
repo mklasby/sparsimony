@@ -163,7 +163,7 @@ def transform_args_kwargs_tensors(
 
 @torch.no_grad()
 def view_tensors_as(
-    size: Tuple[int] | int,
+    size: Tuple[int, int] | int,
     pad: bool = False,
     padding_dim: int = 1,
     permute_conv_to_nhwc: bool = False,
