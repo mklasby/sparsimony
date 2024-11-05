@@ -1,32 +1,21 @@
 import logging
-from collections.abc import Iterable
-from typing import Any, Dict, Callable, List, Tuple, Type
-import copy
-import time
-from tqdm import tqdm
+from typing import Any, Dict, List
 
+from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.optim as optim
-
-from transformers.trainer_callback import (
-    TrainerCallback,
-    ExportableState,
-    TrainingArguments,
-    TrainerState,
-    TrainerControl,
-)
-from accelerate.optimizer import AcceleratedOptimizer
 import wandb
 
 from transformers.trainer_callback import (
     TrainerCallback,
-    ExportableState,
+    # ExportableState,
     TrainingArguments,
     TrainerState,
     TrainerControl,
 )
+
+# from accelerate.optimizer import AcceleratedOptimizer
 
 
 # class SparsimonyCallback(TrainerCallback, ExportableState):
@@ -41,26 +30,40 @@ class SparsimonyCallback(TrainerCallback):
         # sparsifier_kwargs: Dict[str, Any] | None = None,
         # json_serializable: bool = False,
     ):
-        # If None, we delay initalization until we have scope on Trainer attributes
+        # TODO: use on_train_begin or on_init_end to initialize sparsifier
+        # TODO: Add state handling, ideally json only
+
         # self.sparsifier_class = sparsifier_class
         # self.sparsifier_config = sparsifier_config
         # if sparsifier_kwargs is None:
         #     sparsifier_kwargs = {}
         # self.sparsifier_kwargs = sparsifier_kwargs
         self.sparsifier = sparsifier
-        # self.sparse_optim = sparse_optim
-        # # following are required to load ckpt, will be initalized by self.state()
-        # self.sparse_optim_state: dict | None = None
-        # self.sparse_optim_type: type | None = None
-        # self.sparse_optim_kwargs: dict | None = None
-        # self.json_serializable = json_serializable
 
-    # def on_train_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, model, optimizer, **kwargs):
-    #     self.sparsifier = self.sparsifier_class(optimizer=optimizer, **self.sparsifier_kwargs)
+    # def on_train_begin(
+    #     self,
+    #     args: TrainingArguments,
+    #     state: TrainerState,
+    #     control: TrainerControl,
+    #     model,
+    #     optimizer,
+    #     **kwargs,
+    # ):
+    #     self.sparsifier = self.sparsifier_class(
+    #         optimizer=optimizer, **self.sparsifier_kwargs
+    #     )
     #     self.sparsifier.prepare(model, self.sparsifier_config)
     #     return None
 
-    def on_train_begin(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, model, optimizer, **kwargs):
+    def on_train_begin(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        model,
+        optimizer,
+        **kwargs,
+    ):
         print(self.sparsifier)
         return None
 
@@ -75,7 +78,13 @@ class SparsimonyCallback(TrainerCallback):
             print(self.sparsifier)
         return None  # We do not modify control object
 
-    def on_train_end(self, args: TrainingArguments, state: TrainerState, control: TrainerControl, **kwargs):
+    def on_train_end(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
         self.sparsifier.squash_masks()
 
     # def state(self) -> dict:
@@ -102,7 +111,6 @@ class SparsimonyCallback(TrainerCallback):
     #             instance.sparse_optim_state
     #         )
     #     return instance
-        
 
     # def state(self) -> dict:
     #     if self.sparse_optim is None:
@@ -111,7 +119,9 @@ class SparsimonyCallback(TrainerCallback):
     #         # Sync with transformers.trainer_callback.TrainerState
     #         self.sparse_optim_state = self.sparse_optim.state_dict()
     #     else:
-    #         self.sparse_optim_state = self._get_serializable_sparse_optim_state()
+    #         self.sparse_optim_state = (
+    #             self._get_serializable_sparse_optim_state()
+    #         )
     #     self.sparse_optim_type = str(type(self.sparse_optim))
     #     self.sparse_optim_kwargs = self._get_sparse_optim_kwargs()
     #     state = dict(
@@ -138,7 +148,9 @@ class SparsimonyCallback(TrainerCallback):
     #         )
     #     return instance
 
-    # def _init_sparse_optim_from_kwargs(self, model, optimizer, **kwargs) -> None:
+    # def _init_sparse_optim_from_kwargs(
+    #     self, model, optimizer, **kwargs
+    # ) -> None:
     #     if self.sparse_optim_kwargs is None or self.sparse_optim_type is None:
     #         raise AttributeError(self._raise_msg_attrs_not_none())
     #     if isinstance(optimizer, AcceleratedOptimizer):
@@ -163,7 +175,9 @@ class SparsimonyCallback(TrainerCallback):
     #     if self.sparse_optim_kwargs is None:
     #         msg += "sparse_optim_kwargs is None when a dict was expected! "
     #     if self.sparse_optim is None:
-    #         msg += "sparse_optim is None when a cbsparse.optimizer was expected!"
+    #         msg += (
+    #             "sparse_optim is None when a cbsparse.optimizer was expected!"
+    #         )
     #     return msg
 
     # def _get_serializable_sparse_optim_state(self):
@@ -223,7 +237,7 @@ class SparsimonyCallback(TrainerCallback):
     #     for state_idx in sparse_optim_state["state"]:
     #         for k, v in sparse_optim_state["state"][state_idx].items():
     #             if isinstance(v, list):
-    #                 sparse_optim_state["state"][state_idx][k] = torch.Tensor(v)
+    #                 sparse_optim_state["state"][state_idx][k] = torch.Tensor(v)  # noqa
     #     return sparse_optim_state
 
 
@@ -296,25 +310,31 @@ class PplCallBack(TrainerCallback):
         add_start_token: bool = True,
         max_length=2048,
     ) -> torch.Tensor:
-        # if batch_size > 1 (which generally leads to padding being required), and
-        # if there is not an already assigned pad_token, assign an existing
+        # if batch_size > 1 (which generally leads to padding being required)
+        # and if there is not an already assigned pad_token, assign an existing
         # special token to also be the padding token
         if tokenizer.pad_token is None and batch_size > 1:
             existing_special_tokens = list(
                 tokenizer.special_tokens_map_extended.values()
             )
-            # check that the model already has at least one special token defined
-            assert (
-                len(existing_special_tokens) > 0
-            ), "If batch_size > 1, model must have at least one special token to use for padding. Please use a different model or set batch_size=1."
+            # check that the model already has at least one special token
+            assert len(existing_special_tokens) > 0, (
+                "If batch_size > 1, model must have at least one special token "
+                "to use for padding. Please use a different model or set "
+                "batch_size=1."
+            )
             # assign one of the special tokens to also be the pad token
-            tokenizer.add_special_tokens({"pad_token": existing_special_tokens[0]})
+            tokenizer.add_special_tokens(
+                {"pad_token": existing_special_tokens[0]}
+            )
 
         if add_start_token and max_length:
             # leave room for <BOS> token to be added:
-            assert (
-                tokenizer.bos_token is not None
-            ), "Input model must already have a BOS token if using add_start_token=True. Please use a different model, or set add_start_token=False"
+            assert tokenizer.bos_token is not None, (
+                "Input model must already have a BOS token if using "
+                "add_start_token=True. Please use a different model, or set "
+                "add_start_token=False"
+            )
             max_tokenized_len = max_length - 1
         else:
             max_tokenized_len = max_length
