@@ -85,7 +85,7 @@ class SparsimonyCallback(TrainerCallback):
         control: TrainerControl,
         **kwargs,
     ):
-        self.sparsifier.squash_masks()
+        self.sparsifier.squash_mask()
 
     # def state(self) -> dict:
     #     state_dict = self.sparsifier.state_dict()
