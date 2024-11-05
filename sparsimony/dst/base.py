@@ -9,6 +9,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torch.distributed as dist
 from torch.ao.pruning.sparsifier.utils import get_arg_info_from_tensor_fqn
+from accelerate.optimizer import AcceleratedOptimizer
 
 from sparsimony.utils import (
     cast_mask,
@@ -29,6 +30,7 @@ class DSTMixin(ABC):
         optim.SGD: ["momentum_buffer"],
         optim.AdamW: ["exp_avg", "exp_avg_sq"],
         optim.Adam: ["exp_avg", "exp_avg_sq"],
+        # accelerate.optimizer.AcceleratedOptimizer: ["optimizer"]
     }
 
     def __init__(
@@ -60,6 +62,8 @@ class DSTMixin(ABC):
                 to CPU to reduce memory overhead of storing the additional copy
                 of these tensors. Defaults to True.
         """
+        if isinstance(optimizer, AcceleratedOptimizer):
+            optimizer = optimizer.optimizer
         if type(optimizer) not in self._OPTIM_REG:
             raise NotImplementedError(
                 f"DSTMixin does not support optimizer type: {type(optimizer)}"
@@ -272,11 +276,21 @@ class DSTMixin(ABC):
             return did_step
 
     def zero_inactive_param_momentum_buffers(self) -> None:
+        # TODO: Test below
+        # _unwrapped_step = self.optimizer.step
 
-        _unwrapped_step = self.optimizer.step
-
-        def _momentum_zero_wrapper():
-            _unwrapped_step()
+        # def _momentum_zero_wrapper():
+        #     _unwrapped_step()
+        #     for config in self.groups:
+        #         if config["sparsity"] == 0:
+        #             continue
+        #         original_param = get_original_tensor(**config)
+        #         state_kw_list = self._OPTIM_REG[type(self.optimizer)]
+        #         mask = get_mask(**config)
+        #         for state_kw in state_kw_list:
+        #             if state_kw in self.optimizer.state[original_param]:
+        #                 self.optimizer.state[original_param][state_kw] *= mask
+        def _momentum_zero_hook(optimizer, *args, **kwargs):
             for config in self.groups:
                 if config["sparsity"] == 0:
                     continue
@@ -287,7 +301,8 @@ class DSTMixin(ABC):
                     if state_kw in self.optimizer.state[original_param]:
                         self.optimizer.state[original_param][state_kw] *= mask
 
-        self.optimizer.step = _momentum_zero_wrapper
+        # self.optimizer.step = _momentum_zero_wrapper
+        self.optimizer.register_step_post_hook(_momentum_zero_hook)
 
     def get_layerwise_sparsity(self) -> Dict[str, float]:
         layerwise_sparsity_actual = collections.defaultdict(float)
