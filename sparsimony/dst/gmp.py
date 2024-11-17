@@ -40,7 +40,6 @@ class GMP(DSTMixin, BaseSparsifier):
         super().__init__(
             optimizer=optimizer,
             defaults=defaults,
-            low_mem_mode=low_mem_mode,
             *args,
             **kwargs,
         )
