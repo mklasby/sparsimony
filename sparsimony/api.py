@@ -46,6 +46,7 @@ def rigl(
     Returns:
         RigL: Initialized rigl sparsifier.
     """
+    
     return RigL(
         scheduler=CosineDecayScheduler(
             quantity=pruning_ratio,
@@ -109,6 +110,10 @@ def gmp(
 ):
     """GMP* implementation by Kurtic et al.
     https://proceedings.mlr.press/v234/kurtic24a.html
+    
+    Documentation question:
+    Does the implemented AcceleratedCubicScheduler() class object follows eq. (1) in reference [1] below? 
+    [1] M. Zhu and S. Gupta, “To prune, or not to prune: exploring the efficacy of pruning for model compression,” Nov. 13, 2017, arXiv: arXiv:1710.01878. Accessed: Nov. 18, 2024. [Online]. Available: http://arxiv.org/abs/1710.01878
 
     Args:
         optimizer (torch.optim.Optimizer): Previously initialized optimizer for
