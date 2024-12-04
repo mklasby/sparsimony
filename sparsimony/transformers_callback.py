@@ -1,5 +1,7 @@
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
+import os
+import contextlib
 
 from tqdm import tqdm
 import numpy as np
@@ -15,6 +17,15 @@ from transformers.trainer_callback import (
     TrainerControl,
 )
 
+from transformers.integrations.deepspeed import (
+    is_deepspeed_zero3_enabled,
+    set_hf_deepspeed_config,
+    unset_hf_deepspeed_config,
+)
+
+from sparsimony.dst.base import DSTMixin
+from sparsimony.dst.static import StaticSparsifier
+
 # from accelerate.optimizer import AcceleratedOptimizer
 
 
@@ -24,7 +35,10 @@ class SparsimonyCallback(TrainerCallback):
 
     def __init__(
         self,
-        sparsifier,
+        sparsifier: Optional[DSTMixin] = None,
+        sparsity: float = 0.5,
+        default_sparsifier_type: DSTMixin = StaticSparsifier,
+        module_target_types: Optional[List[nn.Module]] = None,
         # sparsifier_class: type,
         # sparsifier_config: List[Dict[str, Any]],
         # sparsifier_kwargs: Dict[str, Any] | None = None,
@@ -39,6 +53,11 @@ class SparsimonyCallback(TrainerCallback):
         #     sparsifier_kwargs = {}
         # self.sparsifier_kwargs = sparsifier_kwargs
         self.sparsifier = sparsifier
+        self.sparsity = sparsity
+        self.default_sparsifier_type = default_sparsifier_type
+        if module_target_types is None:
+            module_target_types = [nn.Linear]
+        self.module_target_types = module_target_types
 
     # def on_train_begin(
     #     self,
@@ -60,11 +79,27 @@ class SparsimonyCallback(TrainerCallback):
         args: TrainingArguments,
         state: TrainerState,
         control: TrainerControl,
-        model,
-        optimizer,
         **kwargs,
     ):
-        print(self.sparsifier)
+        if self.sparsifier is None:
+            # lazy init
+            model = kwargs["model"]
+            optimizer = kwargs["optimizer"]
+            while hasattr(optimizer, "optimizer"):
+                self._logger.info(f"Unwrapping optimizer type: {type(optimizer)}")
+                optimizer = optimizer.optimizer
+            sparsifier_config = [
+                {"tensor_fqn": f"{fqn}.weight"}
+                for fqn, module in model.named_modules()
+                if type(module) in self.module_target_types
+                and fqn not in ["lm_head", "embedding"]
+            ]
+            sparsifier = self.default_sparsifier_type(
+                optimizer=optimizer, sparsity=self.sparsity
+            )
+            sparsifier.prepare(model, sparsifier_config)
+            self.sparsifier = sparsifier
+        self._logger.info(self.sparsifier)
         return None
 
     def on_optimizer_step(
@@ -75,7 +110,7 @@ class SparsimonyCallback(TrainerCallback):
         **kwargs,
     ) -> None:
         if self.sparsifier.step():
-            print(self.sparsifier)
+            self._logger.info(self.sparsifier)
         return None  # We do not modify control object
 
     def on_train_end(
@@ -258,6 +293,10 @@ class PplCallBack(TrainerCallback):
         model = kwargs["model"]
         tokenizer = kwargs["processing_class"]
         ppl = self.compute_ppl(model, tokenizer)
+        if torch.distributed.is_initialized():
+            rank = os.environ["RANK"]
+            if rank != 0:
+                return None
         wandb.log({"wikitext_ppl": ppl["mean_perplexity"]})
         return None
 
@@ -324,9 +363,7 @@ class PplCallBack(TrainerCallback):
                 "batch_size=1."
             )
             # assign one of the special tokens to also be the pad token
-            tokenizer.add_special_tokens(
-                {"pad_token": existing_special_tokens[0]}
-            )
+            tokenizer.add_special_tokens({"pad_token": existing_special_tokens[0]})
 
         if add_start_token and max_length:
             # leave room for <BOS> token to be added:
@@ -358,3 +395,13 @@ class PplCallBack(TrainerCallback):
                 i * max_tokenized_len : (i + 1) * max_tokenized_len
             ]
         return packed_sequences
+
+
+@contextlib.contextmanager
+def temporarily_disable_deepspeed_zero3(training_arguments):
+    if training_arguments.deepspeed and is_deepspeed_zero3_enabled():
+        unset_hf_deepspeed_config()
+        yield
+        set_hf_deepspeed_config(training_arguments.hf_deepspeed_config)
+    else:
+        yield
