@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import deepspeed
 
 
 class FakeSparsity(nn.Module):
@@ -21,6 +22,9 @@ class FakeSparsity(nn.Module):
         self.register_buffer("mask", mask.to(dtype=torch.bool))
 
     def forward(self, x):
+        if len(x) == 0 and hasattr(x, "_z3_optimizer"):
+            # sharded weight
+            x = deepspeed.utils.safe_get_full_fp32_param(x)
         assert self.mask.shape == x.shape
         return self.mask * x
 
