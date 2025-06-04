@@ -1,12 +1,11 @@
-[project]
+[tool.poetry]
 name = "sparsimony"
 version = "0.1.0"
 description = ""
-authors = [
-    {name = "Mike Lasby"}
-]
+authors = ["Mike Lasby"]
+homepage = "https://github.com/mklasby/sparsimony"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
 keywords = []
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -19,30 +18,31 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-requires-python = ">=3.9,<3.13"
-dependencies = [
-    "torch>=2.0",
-    "numpy>=1.0",
+packages= [
+    {include = "sparsimony"}
 ]
 
-[project.optional-dependencies]
-dev = [
-    "flake8>=7.0.0,<8.0.0",
-    "black>=25.0.0,<26.0.0",
-    "pre-commit>=4.0.0,<5.0.0",
-    "pytest>=8.3.5,<9.0.0",
-    "pytest-cov>=6.0.0,<7.0.0",
-]
+[tool.poetry.dependencies]
+python = ">=3.9,<3.13"
+torch=">=2.0"
+numpy="1.*"
+
+[tool.poetry.group.dev.dependencies]
+flake8 = "^7.0.0"
+black = "^25.0.0"
+pre-commit = "^4.0.0"
+pytest = "^8.3.5"
+pytest-cov = "^6.0.0"
 
 
-[project.urls]
-Homepage = "https://github.com/mklasby/sparsimony"
-Issues = "https://github.com/mklasby/sparsimony/issues"
-Repo = "https://github.com/mklasby/sparsimony"
+[tool.poetry.urls]
+"Issues" = "https://github.com/mklasby/sparsimony/issues"
+"Repo" = "https://github.com/mklasby/sparsimony"
+
 
 [build-system]
-requires = ["hatchling >= 1.26"]
-build-backend = "hatchling.build"
+requires = ["poetry-core>=1.8.1"]
+build-backend = "poetry.core.masonry.api"
 
 [tool.black]
 line-length = 80
