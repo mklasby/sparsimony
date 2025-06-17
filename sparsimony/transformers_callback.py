@@ -7,7 +7,14 @@ from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
-import wandb
+
+try:
+    import wandb
+
+    _WANDB_INSTALLED = True
+except ImportError:
+    wandb = None
+    _WANDB_INSTALLED = False
 
 from transformers.trainer_callback import (
     TrainerCallback,
@@ -88,7 +95,7 @@ class SparsimonyCallback(TrainerCallback):
     ):
         if self.squash_mask_on_train_end:
             self.sparsifier.squash_mask()
-            self.logger.info(f"Sparsifier mask squashed on train end.")
+            self.logger.info("Sparsifier mask squashed on train end.")
 
     def on_save(
         self,
@@ -153,7 +160,13 @@ class PplCallBack(TrainerCallback):
             rank = os.environ["RANK"]
             if rank != 0:
                 return None
-        wandb.log({"wikitext_ppl": ppl["mean_perplexity"]})
+        if _WANDB_INSTALLED:
+            wandb.log({"wikitext_ppl": ppl["mean_perplexity"]})
+        else:
+            self._logger.info(
+                f"Wikitext2 PPL: {ppl['mean_perplexity']:.4f} "
+                f"({len(ppl['perplexities'])} sequences)"
+            )
         return None
 
     def compute_ppl(

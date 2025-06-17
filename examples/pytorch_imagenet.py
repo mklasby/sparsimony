@@ -1,8 +1,8 @@
-"""This is a modified version of the PyTorch ImageNet training script for use 
+"""This is a modified version of the PyTorch ImageNet training script for use
 with sparismony.
 
 See sparsimony specific edits enclosed between:
-"### START OF SPARSIMONY EDIT ###" and "### END OF SPARSIMONY EDIT ###" 
+"### START OF SPARSIMONY EDIT ###" and "### END OF SPARSIMONY EDIT ###"
 comments.
 """
 

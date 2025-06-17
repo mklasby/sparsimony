@@ -34,7 +34,9 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
         self.sparsity = sparsity
         if defaults is None:
             defaults = dict(parametrization=FakeSparsity)
-        super().__init__(optimizer=optimizer, defaults=defaults, *args, **kwargs)
+        super().__init__(
+            optimizer=optimizer, defaults=defaults, *args, **kwargs
+        )
         self.pruner = UnstructuredPruner(scorer=MagnitudeScorer)
 
     def _assert_sparsity_level(self, mask: torch.Tensor, sparsity_level: float):
@@ -52,7 +54,9 @@ class StaticMagnitudeSparsifier(DSTMixin, BaseSparsifier):
             # Prune to target sparsity for this step
             mask = get_mask(config["module"], config["tensor_name"])
             weights = getattr(config["module"], config["tensor_name"])
-            mask.data = self.prune_mask(config["sparsity"], mask, values=weights)
+            mask.data = self.prune_mask(
+                config["sparsity"], mask, values=weights
+            )
             self._assert_sparsity_level(mask.data, self.sparsity)
 
     def _step(self):
@@ -79,7 +83,9 @@ class StaticSparsifier(DSTMixin, BaseSparsifier):
         self.sparsity = sparsity
         if defaults is None:
             defaults = dict(parametrization=FakeSparsity)
-        super().__init__(optimizer=optimizer, defaults=defaults, *args, **kwargs)
+        super().__init__(
+            optimizer=optimizer, defaults=defaults, *args, **kwargs
+        )
 
     def _prepare(
         self,
@@ -105,9 +111,9 @@ class StaticSparsifier(DSTMixin, BaseSparsifier):
         n_ones = mask.sum(dtype=torch.int)
         actual_n_ones = int(mask.numel() * (1 - sparsity_level))
         if abs(n_ones - actual_n_ones) > 1:
-            # raise RuntimeError(f"Found sparsity of {n_ones} != {actual_n_ones}")
             self._logger.warning(
-                "Actual n_ones != target_n_ones " f"({n_ones} != {actual_n_ones})"
+                "Actual n_ones != target_n_ones "
+                f"({n_ones} != {actual_n_ones})"
             )
 
     def _initialize_masks(self):
@@ -145,14 +151,18 @@ class StaticSparsifier(DSTMixin, BaseSparsifier):
                 layerwise_sparsity_actual.append(
                     self.calculate_mask_sparsity(mask).item()
                 )
-                active_neurons.append(torch.vmap(neuron_is_active)(mask).sum().item())
+                active_neurons.append(
+                    torch.vmap(neuron_is_active)(mask).sum().item()
+                )
                 total_neurons.append(len(mask))
             active_vs_total_neurons = []
             for a, t in list(zip(active_neurons, total_neurons)):
                 active_vs_total_neurons.append(f"{a}/{t}")
             # TODO: Should list ignored_layers from distribution
         else:
-            err_message = "Error: Sparsifier's prepare() method must be called first."
+            err_message = (
+                "Error: Sparsifier's prepare() method must be called first."
+            )
             global_sparsity = err_message
             layerwise_sparsity_actual = err_message
             layerwise_sparsity_target = err_message
