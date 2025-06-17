@@ -22,11 +22,10 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Upgrade pip
-        run: pip install --upgrade pip
-
-      - name: Install poetry 1.8.1
-        run: pip install poetry==1.8.1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.7.3"
 
       # TODO: If we need SSH agent, need repo admin to add secret key
       # - name: Setup SSH Agent
@@ -34,17 +33,20 @@ jobs:
       #   with:
       #     ssh-private-key: ${{ secrets.SSH_KEY}}
 
+      - name: Upgrade pip
+        run: uv pip install --system --upgrade pip
+
       - name: Install dependencies
-        run: poetry install -vvv
+        run: uv pip install --system -vv ".[dev]"
 
       - name: Lint with Flake8
-        run: poetry run python -m flake8 .
+        run: python -m flake8 .
 
       - name: Setup mock env
         run: echo "WORKING_DIR='./'" >> "$GITHUB_ENV"
 
       - name: Test with pytest
-        run: poetry run python -m pytest tests -vs
+        run: python -m pytest tests -vs
 
       - name: Formatter check with black
-        run: poetry run python -m black --check .
+        run: python -m black --check .

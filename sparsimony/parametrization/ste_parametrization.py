@@ -72,7 +72,7 @@ class FakeSparsitySRSTE(FakeSparsity):
         m: int = 4,
         decay: float = 2e-4,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(mask)
         self.n = n

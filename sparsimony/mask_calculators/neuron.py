@@ -20,7 +20,7 @@ class NeuronPruner(StructuredPruner):
         score_override: Optional[torch.Tensor] = None,
         aggregate_norm_ord: str | int = 2,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
             sparsity,
@@ -28,7 +28,7 @@ class NeuronPruner(StructuredPruner):
             score_override,
             aggregate_norm_ord=aggregate_norm_ord,
             *args,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -43,7 +43,7 @@ class NeuronGrower(StructuredGrower):
         score_override: torch.Tensor | None = None,
         aggregate_norm_ord: str | int = 2,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
             sparsity,
@@ -51,7 +51,7 @@ class NeuronGrower(StructuredGrower):
             score_override,
             aggregate_norm_ord=aggregate_norm_ord,
             *args,
-            **kwargs
+            **kwargs,
         )
 
 
@@ -67,7 +67,7 @@ class NeuronSRigLPruner(StructuredPruner):
         score_override: torch.Tensor | None = None,
         gamma_sal: float = 0.3,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         score_override = self.scorer.init_score_override(mask, score_override)
         candidate_tiles = self.scorer.candidate_tiles(score_override)
@@ -87,7 +87,7 @@ class NeuronSRigLPruner(StructuredPruner):
         scores: torch.Tensor,
         gamma_sal: float = 0.3,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         # TODO: Try passing score override for neurons already ablate
         # Get count of salient elements per tile

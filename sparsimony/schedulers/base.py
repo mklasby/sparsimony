@@ -80,7 +80,7 @@ class SoftMemoryBoundScheduler(BaseScheduler):
         delta_t: int,
         t_grow: int,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(quantity, t_end, delta_t)
         self.t_grow = t_grow
@@ -122,7 +122,7 @@ class AcceleratedCubicScheduler(BaseScheduler):
         accelerated_sparsity: float = 0.7,
         final_sparsity: float = 0.9,
         *args,
-        **kwargs
+        **kwargs,
     ):
         super().__init__(None, t_end, delta_t)
         self.t_accel = t_accel

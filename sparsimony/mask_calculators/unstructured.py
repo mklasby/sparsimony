@@ -17,7 +17,7 @@ class UnstructuredPruner(FineGrainedPruner):
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
             sparsity, mask, score_override, *args, **kwargs
@@ -34,7 +34,7 @@ class UnstructuredGrower(FineGrainedGrower):
         mask: torch.Tensor,
         score_override: torch.Tensor | None = None,
         *args,
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         return super().calculate_mask(
             sparsity, mask, score_override, *args, **kwargs
