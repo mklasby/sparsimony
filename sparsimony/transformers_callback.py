@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import os
 import contextlib
 
@@ -11,12 +11,14 @@ import wandb
 
 from transformers.trainer_callback import (
     TrainerCallback,
-    # ExportableState,
     TrainingArguments,
     TrainerState,
     TrainerControl,
 )
-
+from transformers.trainer_utils import (
+    PREFIX_CHECKPOINT_DIR,
+    get_last_checkpoint,
+)
 from transformers.integrations.deepspeed import (
     is_deepspeed_zero3_enabled,
     set_hf_deepspeed_config,
@@ -24,55 +26,35 @@ from transformers.integrations.deepspeed import (
 )
 
 from sparsimony.dst.base import DSTMixin
-from sparsimony.dst.static import StaticSparsifier
 
-# from accelerate.optimizer import AcceleratedOptimizer
+logger = logging.getLogger(__name__)
 
 
-# class SparsimonyCallback(TrainerCallback, ExportableState):
 class SparsimonyCallback(TrainerCallback):
+    SPARSIFIER_STATE_FILE = "sparsifier_state.pt"
     _logger = logging.getLogger(__name__)
 
     def __init__(
         self,
-        sparsifier: Optional[DSTMixin] = None,
-        sparsity: float = 0.5,
-        default_sparsifier_type: DSTMixin = StaticSparsifier,
-        module_target_types: Optional[List[nn.Module]] = None,
-        # sparsifier_class: type,
-        # sparsifier_config: List[Dict[str, Any]],
-        # sparsifier_kwargs: Dict[str, Any] | None = None,
+        sparsifier: DSTMixin,
+        squash_mask_on_train_end: bool = True,
         # json_serializable: bool = False,
     ):
-        # TODO: use on_train_begin or on_init_end to initialize sparsifier
-        # TODO: Add state handling, ideally json only
-
-        # self.sparsifier_class = sparsifier_class
-        # self.sparsifier_config = sparsifier_config
-        # if sparsifier_kwargs is None:
-        #     sparsifier_kwargs = {}
-        # self.sparsifier_kwargs = sparsifier_kwargs
         self.sparsifier = sparsifier
-        self.sparsity = sparsity
-        self.default_sparsifier_type = default_sparsifier_type
-        if module_target_types is None:
-            module_target_types = [nn.Linear]
-        self.module_target_types = module_target_types
+        self.squash_mask_on_train_end = squash_mask_on_train_end
 
-    # def on_train_begin(
-    #     self,
-    #     args: TrainingArguments,
-    #     state: TrainerState,
-    #     control: TrainerControl,
-    #     model,
-    #     optimizer,
-    #     **kwargs,
-    # ):
-    #     self.sparsifier = self.sparsifier_class(
-    #         optimizer=optimizer, **self.sparsifier_kwargs
-    #     )
-    #     self.sparsifier.prepare(model, self.sparsifier_config)
-    #     return None
+    @property
+    def step_count(self) -> int:
+        return self.sparsifier._step_count
+
+    @step_count.setter
+    def step_count(self, value: int):
+        self.step_count = value
+        self.sparsifier._step_count = value
+        logger.info(
+            f"Step count set to {value} in SparsimonyCallback. "
+            "You should only see this message when loading a checkpoint."
+        )
 
     def on_train_begin(
         self,
@@ -81,25 +63,9 @@ class SparsimonyCallback(TrainerCallback):
         control: TrainerControl,
         **kwargs,
     ):
-        if self.sparsifier is None:
-            # lazy init
-            model = kwargs["model"]
-            optimizer = kwargs["optimizer"]
-            while hasattr(optimizer, "optimizer"):
-                self._logger.info(f"Unwrapping optimizer type: {type(optimizer)}")
-                optimizer = optimizer.optimizer
-            sparsifier_config = [
-                {"tensor_fqn": f"{fqn}.weight"}
-                for fqn, module in model.named_modules()
-                if type(module) in self.module_target_types
-                and fqn not in ["lm_head", "embedding"]
-            ]
-            sparsifier = self.default_sparsifier_type(
-                optimizer=optimizer, sparsity=self.sparsity
-            )
-            sparsifier.prepare(model, sparsifier_config)
-            self.sparsifier = sparsifier
-        self._logger.info(self.sparsifier)
+        self._logger.info(
+            "Sparsimony sparsifier settings:\n%s", self.sparsifier
+        )
         return None
 
     def on_optimizer_step(
@@ -120,160 +86,50 @@ class SparsimonyCallback(TrainerCallback):
         control: TrainerControl,
         **kwargs,
     ):
-        self.sparsifier.squash_mask()
+        if self.squash_mask_on_train_end:
+            self.sparsifier.squash_mask()
+            self.logger.info(f"Sparsifier mask squashed on train end.")
 
-    # def state(self) -> dict:
-    #     state_dict = self.sparsifier.state_dict()
-    #     state = dict(
-    #         args={},
-    #         attributes=dict(
-    #             state_dict=state_dict
-    #         ),
-    #     )
-    #     return state
+    def on_save(
+        self,
+        args: TrainingArguments,
+        state: TrainerState,
+        control: TrainerControl,
+        **kwargs,
+    ):
+        output_dir = args.output_dir
 
-    # @classmethod
-    # def from_state(cls, state):
-    #     self.sparsifier.load_state_dict(**state)
-    #     instance = cls(**state["args"])
-    #     for k, v in state["attributes"].items():
-    #         setattr(instance, k, v)
-    #     instance.sparse_optim_type = cls._SPARSE_OPTIM_TYPE_MAP[
-    #         instance.sparse_optim_type
-    #     ]
-    #     if instance.json_serializable:
-    #         instance.sparse_optim_state = cls._unserialize_state_dict(
-    #             instance.sparse_optim_state
-    #         )
-    #     return instance
+        # The name of the checkpoint folder is "checkpoint-STEP"
+        # The constant PREFIX_CHECKPOINT_DIR is simply "checkpoint"
+        checkpoint_folder = f"{PREFIX_CHECKPOINT_DIR}-{state.global_step}"
+        checkpoint_dir = os.path.join(output_dir, checkpoint_folder)
 
-    # def state(self) -> dict:
-    #     if self.sparse_optim is None:
-    #         raise AttributeError(self._raise_msg_attrs_not_none())
-    #     if not self.json_serializable:
-    #         # Sync with transformers.trainer_callback.TrainerState
-    #         self.sparse_optim_state = self.sparse_optim.state_dict()
-    #     else:
-    #         self.sparse_optim_state = (
-    #             self._get_serializable_sparse_optim_state()
-    #         )
-    #     self.sparse_optim_type = str(type(self.sparse_optim))
-    #     self.sparse_optim_kwargs = self._get_sparse_optim_kwargs()
-    #     state = dict(
-    #         args={},
-    #         attributes=dict(
-    #             sparse_optim_state=self.sparse_optim_state,
-    #             sparse_optim_type=self.sparse_optim_type,
-    #             sparse_optim_kwargs=self.sparse_optim_kwargs,
-    #         ),
-    #     )
-    #     return state
+        state_file = os.path.join(checkpoint_dir, self.SPARSIFIER_STATE_FILE)
+        state_dict = self.sparsifier.state_dict()
+        with open(state_file, "wb") as f:
+            torch.save(state_dict, f)
+        self._logger.info(f"Saved sparsifier state to: {state_file}")
+        return None
 
-    # @classmethod
-    # def from_state(cls, state):
-    #     instance = cls(**state["args"])
-    #     for k, v in state["attributes"].items():
-    #         setattr(instance, k, v)
-    #     instance.sparse_optim_type = cls._SPARSE_OPTIM_TYPE_MAP[
-    #         instance.sparse_optim_type
-    #     ]
-    #     if instance.json_serializable:
-    #         instance.sparse_optim_state = cls._unserialize_state_dict(
-    #             instance.sparse_optim_state
-    #         )
-    #     return instance
-
-    # def _init_sparse_optim_from_kwargs(
-    #     self, model, optimizer, **kwargs
-    # ) -> None:
-    #     if self.sparse_optim_kwargs is None or self.sparse_optim_type is None:
-    #         raise AttributeError(self._raise_msg_attrs_not_none())
-    #     if isinstance(optimizer, AcceleratedOptimizer):
-    #         optimizer = optimizer.optimizer
-    #     optimizer_states_to_track = optimizer_trackers(optimizer)
-    #     self.sparse_optim = self.sparse_optim_type(
-    #         params=model.paramters(),
-    #         optimizers=(optimizer, optimizer_states_to_track),
-    #         **self.sparse_optim_kwargs,
-    #     )
-    #     self.sparse_optim.load_state_dict(self.sparse_optim_state)
-
-    # def _get_sparse_optim_kwargs(self) -> dict:
-    #     if self.sparse_optim is None:
-    #         raise AttributeError(self._raise_msg_attrs_not_none())
-    #     return self.sparse_optim.defaults
-
-    # def _raise_msg_attrs_not_none(self) -> str:
-    #     msg = ""
-    #     if self.sparse_optim_type is None:
-    #         msg += "sparse_optim_type is None when a type was expected! "
-    #     if self.sparse_optim_kwargs is None:
-    #         msg += "sparse_optim_kwargs is None when a dict was expected! "
-    #     if self.sparse_optim is None:
-    #         msg += (
-    #             "sparse_optim is None when a cbsparse.optimizer was expected!"
-    #         )
-    #     return msg
-
-    # def _get_serializable_sparse_optim_state(self):
-    #     self._logger.info("Serializing sparse_optim state_dict...")
-    #     start = time.time()
-    #     if self.sparse_optim is None:
-    #         raise AttributeError(self._raise_msg_attrs_not_none())
-    #     state_dict = self.sparse_optim.state_dict()
-    #     state_dict = self._serializable_state_dict(state_dict)
-    #     end = time.time()
-    #     self._logger.info(
-    #         f"Sparse optim state_dict serialized in {end - start} seconds"
-    #     )
-    #     return state_dict
-
-    # def _serializable_state_dict(self, state_dict: dict) -> dict:
-    #     state_dict = copy.deepcopy(state_dict)
-    #     for k, v in state_dict.items():
-    #         if isinstance(v, torch.Tensor):
-    #             state_dict[k] = self._serialize_tensor(v)
-    #         elif isinstance(v, Iterable):
-    #             state_dict[k] = self._serialize_iterable(v)
-    #     return state_dict
-
-    # def _serialize_iterable(self, iterable: Iterable) -> Iterable:
-    #     iterable_serializers: Dict[Type, Callable] = {
-    #         list: self._serialize_list,
-    #         dict: self._serialize_dict,
-    #         str: lambda x: x,
-    #     }
-    #     return iterable_serializers[type(iterable)](iterable)
-
-    # def _serialize_dict(self, d: dict) -> dict:
-    #     for k, v in d.items():
-    #         if isinstance(v, torch.Tensor):
-    #             d[k] = self._serialize_tensor(v)
-    #         elif isinstance(v, Iterable):
-    #             d[k] = self._serialize_iterable(v)
-    #     return d
-
-    # def _serialize_list(self, l: list) -> list:
-    #     serialized_list = []
-    #     for el in l:
-    #         if isinstance(el, torch.Tensor):
-    #             serialized_list.append(self._serialize_tensor(el))
-    #         elif isinstance(el, Iterable):
-    #             serialized_list.append(self._serialize_iterable(el))
-    #         else:
-    #             serialized_list.append(el)
-    #     return serialized_list
-
-    # def _serialize_tensor(self, t: torch.Tensor) -> list:
-    #     return t.cpu().detach().numpy().tolist()
-
-    # @classmethod
-    # def _unserialize_state_dict(cls, sparse_optim_state: dict) -> dict:
-    #     for state_idx in sparse_optim_state["state"]:
-    #         for k, v in sparse_optim_state["state"][state_idx].items():
-    #             if isinstance(v, list):
-    #                 sparse_optim_state["state"][state_idx][k] = torch.Tensor(v)  # noqa
-    #     return sparse_optim_state
+    def load_checkpoint(self, resume_from_checkpoint: bool | str) -> None:
+        """
+        Load the sparsifier state from a checkpoint directory.
+        """
+        if isinstance(resume_from_checkpoint, str):
+            checkpoint_dir = resume_from_checkpoint
+        else:
+            checkpoint_dir = get_last_checkpoint(resume_from_checkpoint)
+        with open(
+            os.path.join(
+                checkpoint_dir, SparsimonyCallback.SPARSIFIER_STATE_FILE
+            ),
+            "rb",
+        ) as f:
+            state_dict = torch.load(f, weights_only=False)
+        self.sparsifier.load_state_dict(state_dict)
+        logger.info(
+            f"Loaded sparsifier state from checkpoint at {checkpoint_dir}"
+        )
 
 
 class PplCallBack(TrainerCallback):
@@ -363,7 +219,9 @@ class PplCallBack(TrainerCallback):
                 "batch_size=1."
             )
             # assign one of the special tokens to also be the pad token
-            tokenizer.add_special_tokens({"pad_token": existing_special_tokens[0]})
+            tokenizer.add_special_tokens(
+                {"pad_token": existing_special_tokens[0]}
+            )
 
         if add_start_token and max_length:
             # leave room for <BOS> token to be added:
