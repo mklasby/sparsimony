@@ -57,7 +57,6 @@ class SET(DSTMixin, BaseSparsifier):
                     self.update_mask(**config)
                 self._broadcast_masks()
             _topo_updated = True
-        self._step_count += 1
         return _topo_updated
 
     def update_mask(
@@ -74,9 +73,9 @@ class SET(DSTMixin, BaseSparsifier):
         else:
             weights = getattr(module, tensor_name)
             original_weights = get_original_tensor(module, tensor_name)
-            target_sparsity = self.get_sparsity_from_prune_ratio(prune_ratio)
+            target_sparsity = self.get_sparsity_from_prune_ratio(mask, prune_ratio)
             self.prune_mask(target_sparsity, mask, values=weights)
-            self.grow_mask(sparsity, mask, original_weights)
+            self.grow_mask(sparsity, mask, original_weights, values = original_weights)
             self._assert_sparsity_level(mask, sparsity)
 
     def _initialize_masks(self) -> None:
