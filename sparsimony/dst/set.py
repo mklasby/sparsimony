@@ -57,7 +57,6 @@ class SET(DSTMixin, BaseSparsifier):
                     self.update_mask(**config)
                 self._broadcast_masks()
             _topo_updated = True
-        self._step_count += 1
         return _topo_updated
 
     def update_mask(
